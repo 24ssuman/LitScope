@@ -1,5 +1,11 @@
 # Log
 
+## 2026-07-14 10:20:00 PDT
+
+- Created the private GitHub repository `24ssuman/LitScope` using the user's signed-in Safari session.
+- Added `https://github.com/24ssuman/LitScope.git` as `origin` and pushed `main`; Git confirmed `6a4226a30154bb0615ce961443bed10893b372b1` at `refs/heads/main`.
+- Reasoning: the private remote now contains the validated LitScope source while `.gitignore` continues to exclude the user's local article library, reading history, and archive files.
+
 ## 2026-07-14 10:15:00 PDT
 
 - Verified `node --check server.js`, `node --check public/app.js`, and all six automated tests pass after the LitScope rename.
