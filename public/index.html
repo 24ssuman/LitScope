@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>LitScope | Academic Journal Aggregator</title>
+  <!-- Google Fonts for premium typography -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&display=swap" rel="stylesheet">
+  <!-- Lucide Icons via CDN for modern iconography -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="dark-theme">
+  <div id="app" class="app-layout">
+    
+    <!-- Sidebar Panel -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-header">
+        <div class="logo-area">
+          <div class="logo-icon"><i data-lucide="compass"></i></div>
+          <span class="logo-text">LitScope</span>
+          <span class="status-indicator online" id="connection-status"></span>
+        </div>
+        <button id="add-feed-btn" class="icon-btn tooltip" data-tooltip="Add Feed">
+          <i data-lucide="plus"></i>
+        </button>
+      </div>
+
+      <!-- Live Search Box -->
+      <div class="search-box">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="search" id="search-input" placeholder="Search title, author, journal, or DOI..." aria-label="Search articles">
+        <button id="clear-search-btn" class="clear-btn hidden" aria-label="Clear search"><i data-lucide="x"></i></button>
+      </div>
+
+      <!-- Quick Nav Links -->
+      <nav class="quick-nav">
+        <a href="#" class="nav-item active" id="nav-today">
+          <i data-lucide="calendar"></i>
+          <span>Today</span>
+          <span class="badge" id="count-today">0</span>
+        </a>
+        <a href="#" class="nav-item" id="nav-new">
+          <i data-lucide="bell"></i>
+          <span>New Articles</span>
+          <span class="badge" id="count-new">0</span>
+        </a>
+        <a href="#" class="nav-item" id="nav-saved">
+          <i data-lucide="star"></i>
+          <span>Saved for later</span>
+          <span class="badge" id="count-saved">0</span>
+        </a>
+        <a href="#" class="nav-item" id="nav-all">
+          <i data-lucide="inbox"></i>
+          <span>All articles</span>
+          <span class="badge" id="count-all">0</span>
+        </a>
+      </nav>
+
+      <!-- Feeds List (Dynamic Groups) -->
+      <div class="feeds-section">
+        <div class="feeds-title">
+          <span>FEEDS</span>
+        </div>
+        <div class="feeds-list" id="feeds-list-container">
+          <!-- Dynamic category collapsible sections go here -->
+          <div class="loading-placeholder">Loading feeds...</div>
+        </div>
+      </div>
+
+      <!-- Sidebar Footer Controls -->
+      <div class="sidebar-footer">
+        <button id="theme-toggle-btn" class="footer-btn tooltip" data-tooltip="Toggle Theme">
+          <i data-lucide="moon"></i>
+        </button>
+        <button id="keyboard-help-btn" class="footer-btn tooltip" data-tooltip="Keyboard Shortcuts (?)">
+          <i data-lucide="keyboard"></i>
+        </button>
+        <button id="reset-db-btn" class="footer-btn danger tooltip" data-tooltip="Reset Database">
+          <i data-lucide="rotate-ccw"></i>
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main Content Panel -->
+    <main class="main-panel">
+      <!-- Top Actions Bar -->
+      <header class="top-bar">
+        <div class="header-info">
+          <button id="menu-toggle-btn" class="icon-btn mobile-only"><i data-lucide="menu"></i></button>
+          <h1 id="feed-title">Today</h1>
+          <span class="article-count-label" id="article-count-label">0 articles</span>
+        </div>
+
+        <div class="header-actions">
+          <!-- Filter: Read vs Unread -->
+          <div class="filter-toggle-group">
+            <button id="filter-unread-btn" class="toggle-btn active">Unread</button>
+            <button id="filter-all-btn" class="toggle-btn">All</button>
+          </div>
+
+          <!-- Layout Buttons -->
+          <div class="layout-toggle-group">
+            <button id="layout-list-btn" class="layout-btn tooltip" data-tooltip="List View"><i data-lucide="align-justify"></i></button>
+            <button id="layout-magazine-btn" class="layout-btn active tooltip" data-tooltip="Magazine View"><i data-lucide="layout-list"></i></button>
+            <button id="layout-cards-btn" class="layout-btn tooltip" data-tooltip="Cards View"><i data-lucide="layout-grid"></i></button>
+          </div>
+
+          <div class="action-divider"></div>
+
+          <!-- General Actions -->
+          <button id="refresh-btn" class="btn primary tooltip" data-tooltip="Refresh Feed">
+            <i data-lucide="refresh-cw" id="refresh-icon"></i>
+            <span>Refresh</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Active Fetching Progress Banner -->
+      <div class="progress-banner hidden" id="progress-banner">
+        <div class="progress-bar-container">
+          <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+        </div>
+        <div class="progress-details">
+          <span id="progress-text">Refreshing feeds...</span>
+          <span id="progress-percentage">0%</span>
+        </div>
+      </div>
+
+      <!-- Article Stream Viewport -->
+      <div class="stream-container" id="stream-container">
+        <!-- Advanced Search Panel -->
+        <div id="advanced-search-panel" class="advanced-search-panel hidden">
+          <div class="filter-panel-heading">
+            <div>
+              <span class="eyebrow">Research library</span>
+              <h2>Refine your results</h2>
+            </div>
+            <p>Combine filters to find the papers that matter now.</p>
+          </div>
+          <div class="filter-row">
+            <div class="filter-group">
+              <label for="filter-journal-select">Journal</label>
+              <select id="filter-journal-select">
+                <option value="">All journals</option>
+              </select>
+            </div>
+            <div class="filter-group">
+              <label for="filter-author-input">Author</label>
+              <input type="text" id="filter-author-input" placeholder="Search author...">
+            </div>
+            <div class="filter-group">
+              <label for="filter-start-date">Start Date</label>
+              <input type="date" id="filter-start-date">
+            </div>
+            <div class="filter-group">
+              <label for="filter-end-date">End Date</label>
+              <input type="date" id="filter-end-date">
+            </div>
+            <div class="filter-group">
+              <label for="filter-sort-select">Sort</label>
+              <select id="filter-sort-select">
+                <option value="newest">Newest first</option>
+                <option value="oldest">Oldest first</option>
+                <option value="journal">Journal A–Z</option>
+              </select>
+            </div>
+            <div class="filter-group button-group">
+              <button id="apply-filters-btn" class="btn primary">
+                <i data-lucide="filter"></i>
+                <span>Apply</span>
+              </button>
+              <button id="reset-filters-btn" class="btn secondary">
+                <i data-lucide="x-circle"></i>
+                <span>Clear</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Rendered articles list -->
+        <div class="stream-content" id="articles-list-container">
+          <!-- Dynamic article cards, rows, or list entries go here -->
+        </div>
+        <div class="stream-empty hidden" id="stream-empty">
+          <i data-lucide="check-circle-2" class="empty-icon"></i>
+          <h2>You're all caught up!</h2>
+          <p>No unread articles in this view. Try fetching fresh articles or changing the filter.</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Slide-out Article Detail Drawer -->
+    <aside class="detail-drawer" id="detail-drawer">
+      <div class="drawer-header">
+        <div class="drawer-meta">
+          <span class="drawer-feed-name" id="drawer-feed-name">JCTC</span>
+          <span class="drawer-date" id="drawer-date">2 hours ago</span>
+        </div>
+        <div class="drawer-actions">
+          <button id="drawer-star-btn" class="icon-btn tooltip" data-tooltip="Save for later (S)">
+            <i data-lucide="star"></i>
+          </button>
+          <button id="drawer-read-btn" class="icon-btn tooltip" data-tooltip="Toggle read (R)">
+            <i data-lucide="check"></i>
+          </button>
+          <button id="drawer-close-btn" class="icon-btn" aria-label="Close">
+            <i data-lucide="x"></i>
+          </button>
+        </div>
+      </div>
+      <div class="drawer-body">
+        <h1 class="drawer-title" id="drawer-title">Machine Learning Potentials for Accurate Prediction of Transition State Structures</h1>
+        <div class="drawer-authors" id="drawer-authors">A. Kovalenko, E. Rostova, and I. Petrov</div>
+        
+        <div class="drawer-doi-container hidden" id="drawer-doi-container">
+          <span class="doi-label">DOI / ID:</span>
+          <a href="#" target="_blank" rel="noopener noreferrer" id="drawer-doi-link" class="doi-link">10.1002/jcc.70460</a>
+        </div>
+        
+        <div class="drawer-divider"></div>
+        <div class="drawer-content-header">ABSTRACT</div>
+        <div class="drawer-content" id="drawer-content">
+          We introduce a machine learning potential trained on coupled-cluster calculations to predict transition state geometries and activation barriers. The model reduces computational cost by five orders of magnitude while preserving chemical accuracy within 1 kcal/mol.
+        </div>
+        <div class="drawer-footer">
+          <button id="drawer-copy-citation-btn" class="btn secondary" type="button">
+            <i data-lucide="copy"></i>
+            <span>Copy citation</span>
+          </button>
+          <a href="#" target="_blank" rel="noopener noreferrer" id="drawer-external-link" class="btn primary">
+            <span>Visit Publisher Website</span>
+            <i data-lucide="external-link"></i>
+          </a>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- Modal: Add / Edit Feed Dialog -->
+  <div class="modal-overlay hidden" id="feed-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2 id="feed-modal-title">Add New Journal Feed</h2>
+        <button class="modal-close" id="feed-modal-close-btn"><i data-lucide="x"></i></button>
+      </div>
+      <form id="feed-form" class="modal-form">
+        <div class="form-group">
+          <label for="feed-name-input">Journal Name</label>
+          <input type="text" id="feed-name-input" placeholder="e.g. Nature Materials" required>
+        </div>
+        <div class="form-group">
+          <label for="feed-url-input">RSS Feed URL</label>
+          <input type="url" id="feed-url-input" placeholder="e.g. https://www.nature.com/nmat.rss" required>
+        </div>
+        <div class="form-group">
+          <label for="feed-category-input">Category / Folder</label>
+          <input type="text" id="feed-category-input" list="categories-list" placeholder="e.g. Chem" required>
+          <datalist id="categories-list">
+            <option value="Comp Chem">
+            <option value="Chem">
+          </datalist>
+        </div>
+        <div class="form-actions">
+          <button type="button" class="btn secondary" id="feed-modal-cancel-btn">Cancel</button>
+          <button type="submit" class="btn primary" id="feed-modal-submit-btn">Add Feed</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Edit Feed properties -->
+  <div class="modal-overlay hidden" id="edit-feed-modal">
+    <div class="modal-card">
+      <div class="modal-header">
+        <h2>Edit Feed Properties</h2>
+        <button class="modal-close" id="edit-feed-modal-close-btn"><i data-lucide="x"></i></button>
+      </div>
+      <form id="edit-feed-form" class="modal-form">
+        <input type="hidden" id="edit-feed-id">
+        <div class="form-group">
+          <label for="edit-feed-name">Journal Name</label>
+          <input type="text" id="edit-feed-name" required>
+        </div>
+        <div class="form-group">
+          <label for="edit-feed-category">Category / Folder</label>
+          <input type="text" id="edit-feed-category" list="categories-list" required>
+        </div>
+        <div class="form-group">
+          <label for="edit-feed-url">RSS Feed URL</label>
+          <input type="url" id="edit-feed-url" required>
+        </div>
+        <div class="form-actions space-between">
+          <button type="button" class="btn danger" id="edit-feed-delete-btn">Delete Feed</button>
+          <div class="right-actions">
+            <button type="button" class="btn secondary" id="edit-feed-cancel-btn">Cancel</button>
+            <button type="submit" class="btn primary">Save Changes</button>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal: Keyboard Shortcuts Cheat Sheet -->
+  <div class="modal-overlay hidden" id="keyboard-modal">
+    <div class="modal-card compact">
+      <div class="modal-header">
+        <h2>Keyboard Shortcuts</h2>
+        <button class="modal-close" id="keyboard-modal-close-btn"><i data-lucide="x"></i></button>
+      </div>
+      <div class="shortcuts-grid">
+        <div class="shortcut-row">
+          <kbd>j</kbd> <span>Next article</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>k</kbd> <span>Previous article</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>r</kbd> <span>Toggle Read / Unread</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>s</kbd> <span>Toggle Star (Save for later)</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>o</kbd> <span>Open selected article in side panel</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>v</kbd> <span>Visit publisher website in a new tab</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>c</kbd> <span>Copy citation for selected article</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>/</kbd> <span>Focus article search</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>esc</kbd> <span>Close active panels and modals</span>
+        </div>
+        <div class="shortcut-row">
+          <kbd>?</kbd> <span>Show keyboard shortcut helper</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Custom Alert Toast Container -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <!-- App logic entry -->
+  <script src="app.js"></script>
+</body>
+</html>

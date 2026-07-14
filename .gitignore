@@ -1,0 +1,24 @@
+# Dependencies and runtime output
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+
+# Per-user article library and reading state
+db.json
+read_history.json
+articles_archive.csv
+local/
+personal/
+private/
+
+# Local editor and OS metadata
+.DS_Store
+.vscode/
+.idea/
