@@ -1,5 +1,12 @@
 # Log
 
+## 2026-07-14 10:15:00 PDT
+
+- Verified `node --check server.js`, `node --check public/app.js`, and all six automated tests pass after the LitScope rename.
+- Created the initial local `main` commit: `0590f9a Initialize LitScope`.
+- Confirmed the browser session is at GitHub's sign-in page, so private repository creation cannot proceed until the user signs in there.
+- Reasoning: the local Git history is complete and excludes all personal reading/archive data; publishing requires an authenticated GitHub browser session because no repository-creation API is available in the connected integration.
+
 ## 2026-07-14 10:10:00 PDT
 
 - Adopted `LitScope` as the product and private GitHub repository name.
