@@ -18,6 +18,11 @@ local/
 personal/
 private/
 
+# Local Codex working notes
+AGENTS.md
+PLAN.md
+LOG.md
+
 # Local editor and OS metadata
 .DS_Store
 .vscode/

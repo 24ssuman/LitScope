@@ -8,7 +8,6 @@ Local Express app for tracking recent chemistry and computational chemistry arti
 - `db.json` stores feeds, articles, and UI settings.
 - `articles_archive.csv` mirrors saved article metadata for spreadsheet use.
 - `public/` contains the browser UI.
-- `AGENTS.md`, `PLAN.md`, and `LOG.md` track local working instructions, implementation plan, and timestamped changes for this task.
 
 ## Run
 
