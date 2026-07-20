@@ -6,6 +6,14 @@ const crypto = require('crypto');
 const Parser = require('rss-parser');
 const { createCrossrefClient } = require('./crossref-client');
 const { resolveArticleReadState } = require('./article-read-state');
+const {
+  createDefaultFeeds,
+  getChemRxivCategories,
+  getCrossrefFallbacks,
+  getJournalHomepages,
+  isSupportedFeedUrl,
+  slugifyFeedName
+} = require('./journal-config');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -27,44 +35,10 @@ const parser = new Parser({
   timeout: 15000
 });
 
-// Default Feeds matching screenshots
-const DEFAULT_FEEDS = [
-  // Category: Comp Chem
-  { id: 'jcc', name: 'JCC', url: 'https://onlinelibrary.wiley.com/feed/1096987x/most-recent', category: 'Comp Chem' },
-  { id: 'jcp', name: 'JCP', url: 'https://pubs.aip.org/rss/site_1000043/1000024.xml', category: 'Comp Chem' },
-  { id: 'jctc', name: 'JCTC', url: 'https://pubs.acs.org/action/showFeed?jc=jctcce&type=etoc&feed=rss', category: 'Comp Chem' },
-  { id: 'jpca', name: 'JPC A', url: 'https://pubs.acs.org/action/showFeed?jc=jpcafh&type=etoc&feed=rss', category: 'Comp Chem' },
-  { id: 'jpcb', name: 'JPC B', url: 'https://pubs.acs.org/action/showFeed?jc=jpcbfk&type=etoc&feed=rss', category: 'Comp Chem' },
-  { id: 'jpcc', name: 'JPC C', url: 'https://pubs.acs.org/action/showFeed?jc=jpchax&type=etoc&feed=rss', category: 'Comp Chem' },
-  { id: 'jpcletts', name: 'JPC Letts', url: 'https://pubs.acs.org/action/showFeed?jc=jpclcd&type=etoc&feed=rss', category: 'Comp Chem' },
-  { id: 'pccp', name: 'PCCP', url: 'https://feeds.feedburner.com/rsc/pccp', category: 'Comp Chem' },
-
-  // Category: Chem
-  { id: 'chemphyschem', name: 'Chem Phys Chem', url: 'https://onlinelibrary.wiley.com/feed/14397641/most-recent', category: 'Chem' },
-  { id: 'natchem', name: 'Nat Chem', url: 'https://www.nature.com/nchem.rss', category: 'Chem' },
-  { id: 'natcommun', name: 'Nat Commun', url: 'https://www.nature.com/ncomms.rss', category: 'Chem' },
-  { id: 'natmat', name: 'Nat Mat', url: 'https://www.nature.com/nmat.rss', category: 'Chem' },
-  { id: 'nature', name: 'Nature', url: 'https://www.nature.com/nature.rss', category: 'Chem' },
-  { id: 'pnas', name: 'PNAS', url: 'https://www.pnas.org/rss/current.xml', category: 'Chem' },
-  { id: 'scientificreports', name: 'Scientific Reports', url: 'https://www.nature.com/srep.rss', category: 'Chem' },
-  { id: 'acscat', name: 'ACS Cat.', url: 'https://pubs.acs.org/action/showFeed?jc=accacs&type=etoc&feed=rss', category: 'Chem' },
-  { id: 'acsnano', name: 'ACS Nano', url: 'https://pubs.acs.org/action/showFeed?jc=ancac3&type=etoc&feed=rss', category: 'Chem' },
-  { id: 'acsnanomat', name: 'ACS Nano Mat', url: 'https://pubs.acs.org/action/showFeed?jc=aanmf6&type=etoc&feed=rss', category: 'Chem' },
-  { id: 'chemmat', name: 'Chem Mat', url: 'https://pubs.acs.org/action/showFeed?jc=cmatex&type=etoc&feed=rss', category: 'Chem' },
-  { id: 'chemsci', name: 'Chem. Sci.', url: 'https://feeds.feedburner.com/rsc/chemicalscience', category: 'Chem' },
-  { id: 'faradaydiscussion', name: 'Faraday Discussion', url: 'https://feeds.feedburner.com/rsc/faradaydiscussions', category: 'Chem' },
-  { id: 'jacs', name: 'JACS', url: 'https://pubs.acs.org/action/showFeed?jc=jacsat&type=etoc&feed=rss', category: 'Chem' },
-  { id: 'nanolett', name: 'Nano Lett', url: 'https://pubs.acs.org/action/showFeed?jc=nalefd&type=etoc&feed=rss', category: 'Chem' },
-  { id: 'natrevchem', name: 'Nat Rev Chem', url: 'https://www.nature.com/nrevchem.rss', category: 'Chem' },
-  { id: 'pnaschemistry', name: 'PNAS: Chemistry', url: 'https://www.pnas.org/rss/chemistry.xml', category: 'Chem' },
-  { id: 'sciadv', name: 'Sci. Adv.', url: 'https://www.science.org/rss/advances.xml', category: 'Chem' },
-  { id: 'science', name: 'Science', url: 'https://www.science.org/rss/current.xml', category: 'Chem' },
-  { id: 'sciencefirstrelease', name: 'Science First Release', url: 'https://www.science.org/rss/express.xml', category: 'Chem' },
-
-  // Category: Preprints
-  { id: 'chemrxiv-tcc', name: 'ChemRxiv: Theo/Comp', url: 'chemrxiv://theoretical-and-computational-chemistry', category: 'Comp Chem' },
-  { id: 'chemrxiv-pc', name: 'ChemRxiv: Phys Chem', url: 'chemrxiv://physical-chemistry', category: 'Comp Chem' }
-];
+// The default feed shape remains unchanged; its journal metadata is centralized
+// in journal-config.js so adding an RSS-backed journal does not require edits in
+// multiple ingestion/fallback maps.
+const DEFAULT_FEEDS = createDefaultFeeds();
 
 // Helper templates for realistic mock research articles
 const MOCK_RESEARCH_TEMPLATES = {
@@ -346,39 +320,9 @@ function extractDoiFromFeedItem(item) {
 }
 
 
-// Mapping of default journal feed IDs to their real homepages to ensure working external links
-const HOMEPAGES = {
-  jcc: 'https://onlinelibrary.wiley.com/journal/1096987x',
-  jcp: 'https://pubs.aip.org/aip/jcp',
-  jctc: 'https://pubs.acs.org/journal/jctcce',
-  jpca: 'https://pubs.acs.org/journal/jpcafh',
-  jpcb: 'https://pubs.acs.org/journal/jpcbfk',
-  jpcc: 'https://pubs.acs.org/journal/jpchax',
-  jpcletts: 'https://pubs.acs.org/journal/jpclcd',
-  pccp: 'https://pubs.rsc.org/en/journals/journalissues/cp',
-  chemphyschem: 'https://onlinelibrary.wiley.com/journal/14397641',
-  natchem: 'https://www.nature.com/nchem',
-  natcommun: 'https://www.nature.com/ncomms',
-  natmat: 'https://www.nature.com/nmat',
-  nature: 'https://www.nature.com/nature',
-  pnas: 'https://www.pnas.org',
-  scientificreports: 'https://www.nature.com/srep',
-  acscat: 'https://pubs.acs.org/journal/accacs',
-  acsnano: 'https://pubs.acs.org/journal/ancac3',
-  acsnanomat: 'https://pubs.acs.org/journal/aanmf6',
-  chemmat: 'https://pubs.acs.org/journal/cmatex',
-  chemsci: 'https://pubs.rsc.org/en/journals/journalissues/sc',
-  faradaydiscussion: 'https://pubs.rsc.org/en/journals/journalissues/fd',
-  jacs: 'https://pubs.acs.org/journal/jacsat',
-  nanolett: 'https://pubs.acs.org/journal/nalefd',
-  natrevchem: 'https://www.nature.com/nrevchem',
-  pnaschemistry: 'https://www.pnas.org',
-  sciadv: 'https://www.science.org/journal/sciadv',
-  science: 'https://www.science.org/journal/science',
-  sciencefirstrelease: 'https://www.science.org/journal/science',
-  'chemrxiv-tcc': 'https://chemrxiv.org/engage/chemrxiv/search-dashboard?categoryIds=605c704b6c174a001015cca0',
-  'chemrxiv-pc': 'https://chemrxiv.org/engage/chemrxiv/search-dashboard?categoryIds=605c704b6c174a001015cc9e'
-};
+// Derived from the journal registry so DOI fallback links keep working for all
+// shipped journals and any future configured journal with a homepage.
+const HOMEPAGES = getJournalHomepages();
 
 // Extract standard DOI or arXiv ID from article fields
 function extractDOI(...fields) {
@@ -519,11 +463,9 @@ function repairNonChemRxivArticleLinksFromDoi() {
   return repairedCount;
 }
 
-// ChemRxiv custom API fetcher (no RSS available)
-const CHEMRXIV_CATEGORIES = {
-  'chemrxiv-tcc': '605c704b6c174a001015cca0', // Theoretical and Computational Chemistry
-  'chemrxiv-pc': '605c704b6c174a001015cc9e'   // Physical Chemistry
-};
+// ChemRxiv custom API fetcher (no RSS available). The category IDs remain
+// registry data so the existing non-RSS path is preserved without another map.
+const CHEMRXIV_CATEGORIES = getChemRxivCategories();
 
 const CHEMRXIV_CROSSREF_DAYS = 30;
 const CHEMRXIV_CROSSREF_ROWS = 100;
@@ -540,36 +482,7 @@ const crossrefClient = createCrossrefClient({
   maxRetries: Number.isFinite(CROSSREF_MAX_RETRIES) ? Math.max(0, CROSSREF_MAX_RETRIES) : 2
 });
 
-const JOURNAL_CROSSREF_FALLBACKS = {
-  jcc: { issn: '1096-987X', rows: 20 },
-  jcp: { issn: '1089-7690', rows: 20 },
-  jctc: { issn: '1549-9618', rows: 20 },
-  jpca: { issn: '1520-5215', rows: 20 },
-  jpcb: { issn: '1520-5207', rows: 20 },
-  jpcc: { issn: '1932-7455', rows: 20 },
-  jpcletts: { issn: '1948-7185', rows: 20 },
-  pccp: { issn: '1463-9084', rows: 20 },
-  chemphyschem: { issn: '1439-7641', rows: 20 },
-  natchem: { issn: '1755-4349', rows: 20 },
-  natcommun: { issn: '2041-1723', rows: 20 },
-  natmat: { issn: '1476-4660', rows: 20 },
-  nature: { issn: '1476-4687', rows: 20 },
-  pnas: { issn: '1091-6490', rows: 20 },
-  pnaschemistry: { issn: '1091-6490', rows: 20 },
-  scientificreports: { issn: '2045-2322', rows: 20 },
-  acscat: { issn: '2155-5435', rows: 20 },
-  acsnano: { issn: '1936-086X', rows: 20 },
-  acsnanomat: { issn: '2694-2461', rows: 20 },
-  chemmat: { issn: '1520-5002', rows: 20 },
-  chemsci: { issn: '2041-6539', rows: 20 },
-  faradaydiscussion: { issn: '1364-5498', rows: 20 },
-  jacs: { issn: '1520-5126', rows: 20 },
-  nanolett: { issn: '1530-6992', rows: 20 },
-  natrevchem: { issn: '2397-3358', rows: 20 },
-  sciadv: { issn: '2375-2548', rows: 20 },
-  science: { issn: '1095-9203', rows: 20 },
-  sciencefirstrelease: { issn: '1095-9203', rows: 20 }
-};
+const JOURNAL_CROSSREF_FALLBACKS = getCrossrefFallbacks();
 
 const CHEMRXIV_CATEGORY_KEYWORDS = {
   'chemrxiv-tcc': [
@@ -1134,20 +1047,30 @@ app.get('/api/feeds', (req, res) => {
 // 2. POST add new feed
 app.post('/api/feeds', async (req, res) => {
   const { name, url, category } = req.body;
-  if (!name || !url || !category) {
+  const feedName = String(name || '').trim();
+  const feedUrl = String(url || '').trim();
+  const feedCategory = String(category || '').trim();
+
+  if (!feedName || !feedUrl || !feedCategory) {
     return res.status(400).json({ error: 'Name, url, and category are required' });
   }
+  if (!isSupportedFeedUrl(feedUrl)) {
+    return res.status(400).json({ error: 'Feed URL must be an HTTP(S) RSS URL or a supported special feed URL' });
+  }
 
-  const id = name.toLowerCase().replace(/[^a-z0-9]/g, '');
+  const id = slugifyFeedName(feedName);
+  if (!id) {
+    return res.status(400).json({ error: 'Journal name must contain at least one letter or number' });
+  }
   if (db.feeds.find(f => f.id === id)) {
-    return res.status(400).json({ error: `Feed with name/id "${name}" already exists` });
+    return res.status(400).json({ error: `Feed with name/id "${feedName}" already exists` });
   }
 
   const newFeed = {
     id,
-    name,
-    url,
-    category,
+    name: feedName,
+    url: feedUrl,
+    category: feedCategory,
     lastFetched: null,
     status: 'ok',
     errorMessage: null
@@ -1173,10 +1096,22 @@ app.put('/api/feeds/:id', (req, res) => {
     return res.status(404).json({ error: 'Feed not found' });
   }
 
-  if (name) feed.name = name;
-  if (category) feed.category = category;
-  if (url) {
-    feed.url = url;
+  if (name !== undefined) {
+    const updatedName = String(name).trim();
+    if (!updatedName) return res.status(400).json({ error: 'Journal name cannot be empty' });
+    feed.name = updatedName;
+  }
+  if (category !== undefined) {
+    const updatedCategory = String(category).trim();
+    if (!updatedCategory) return res.status(400).json({ error: 'Category cannot be empty' });
+    feed.category = updatedCategory;
+  }
+  if (url !== undefined) {
+    const updatedUrl = String(url).trim();
+    if (!isSupportedFeedUrl(updatedUrl)) {
+      return res.status(400).json({ error: 'Feed URL must be an HTTP(S) RSS URL or a supported special feed URL' });
+    }
+    feed.url = updatedUrl;
     feed.lastFetched = null; // force refetch
   }
 

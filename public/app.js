@@ -1326,13 +1326,13 @@ function bindEvents() {
     
     try {
       showToast('Adding feed and downloading metadata...', 'info');
-      await API.addFeed(name, url, category);
+      const addedFeed = await API.addFeed(name, url, category);
       showToast(`Feed "${name}" added successfully!`, 'success');
       closeFeedModal();
       
       // Reload sidebar & article view
       await refreshSidebar();
-      await selectFeed(name.toLowerCase().replace(/[^a-z0-9]/g, ''));
+      await selectFeed(addedFeed.id);
     } catch (err) {
       showToast(err.message, 'error');
     }
