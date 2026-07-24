@@ -14,6 +14,7 @@ const EVENT_TYPES = Object.freeze({
   open: { label: 0.72, weight: 1, profileSignal: 1 },
   external: { label: 0.9, weight: 1.35, profileSignal: 1.25 },
   star: { label: 1, weight: 1.8, profileSignal: 1.8 },
+  abstract: { label: 0.78, weight: 0.65, profileSignal: 0.65 },
   unstar: { label: 0.35, weight: 0.45, profileSignal: -0.6 }
 });
 
@@ -413,13 +414,14 @@ function rankArticles(articles, state, { limit = 50 } = {}) {
     }
 
     const [chosen] = remaining.splice(bestIndex, 1);
+    const chosenFeedKey = chosen.feedKey;
     chosen.suggestionScore = Math.round(bestValue * 1000) / 1000;
     delete chosen.feedKey;
     delete chosen.interestScore;
     delete chosen.freshnessScore;
     delete chosen.explorationScore;
     selected.push(chosen);
-    feedCounts.set(chosen.feedKey || getFeedKey(chosen), (feedCounts.get(chosen.feedKey || getFeedKey(chosen)) || 0) + 1);
+    feedCounts.set(chosenFeedKey, (feedCounts.get(chosenFeedKey) || 0) + 1);
   }
 
   return selected;

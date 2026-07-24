@@ -30,6 +30,7 @@ test('passive read/seen state is not a model event', () => {
   assert.equal(getEventConfig('impression'), null);
   assert.equal(getEventConfig('like'), null);
   assert.equal(getEventConfig('not-for-me'), null);
+  assert.ok(getEventConfig('abstract'));
 });
 
 test('title, authors, and abstract all contribute to hashed features', () => {
@@ -59,10 +60,10 @@ test('the cold-start neural ranker learns an active positive signal', () => {
 
 test('all active article interactions train the model without explicit feedback controls', () => {
   const state = createSuggestionState();
-  ['open', 'external', 'star', 'unstar'].forEach(type => trainOnArticle(state, article, type));
+  ['open', 'external', 'star', 'abstract', 'unstar'].forEach(type => trainOnArticle(state, article, type));
 
-  assert.equal(state.stats.trainingExamples, 4);
-  assert.equal(state.stats.positiveExamples, 3);
+  assert.equal(state.stats.trainingExamples, 5);
+  assert.equal(state.stats.positiveExamples, 4);
   assert.equal(state.stats.negativeExamples, 1);
 });
 

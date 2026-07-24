@@ -1242,6 +1242,9 @@ async function loadFullAbstractForArticle(article) {
     }
 
     article.fullAbstract = result.fullAbstract;
+    // The click already queued an `open` signal. This lighter follow-up lets
+    // the fuller publisher abstract shape the same preference once available.
+    queueSuggestionEvent(article, 'abstract');
     if (state.selectedArticleId === article.id) {
       DOM.drawerContent.innerText = result.fullAbstract;
       DOM.drawerAbstractStatus.innerText = result.cached

@@ -12,6 +12,7 @@ const {
   getEnrichmentText,
   getEventConfig,
   getEventType,
+  MODEL_VERSION,
   normalizeSuggestionState,
   rankArticles,
   trainOnArticle
@@ -350,6 +351,7 @@ function getSuggestionCandidates() {
 function getSuggestionSummary() {
   const stats = suggestionState.stats || {};
   return {
+    modelVersion: MODEL_VERSION,
     eventsProcessed: stats.eventsProcessed || 0,
     trainingExamples: stats.trainingExamples || 0,
     positiveExamples: stats.positiveExamples || 0,
