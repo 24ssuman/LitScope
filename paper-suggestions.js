@@ -3,17 +3,18 @@
 // A small, dependency-free online neural ranker. The model intentionally lives
 // outside db.json so personal article/read/star state remains compatible with
 // existing LitScope installations.
-const MODEL_VERSION = 1;
+const MODEL_VERSION = 2;
 const INPUT_SIZE = 256;
 const HIDDEN_SIZE = 12;
 const DEFAULT_SEED = 0x51f15e77;
 const MAX_WEIGHT = 4;
+const PROFILE_MAX_WEIGHT = 1000;
 
 const EVENT_TYPES = Object.freeze({
-  open: { label: 0.72, weight: 1 },
-  external: { label: 0.9, weight: 1.35 },
-  star: { label: 1, weight: 1.8 },
-  unstar: { label: 0.35, weight: 0.45 }
+  open: { label: 0.72, weight: 1, profileSignal: 1 },
+  external: { label: 0.9, weight: 1.35, profileSignal: 1.25 },
+  star: { label: 1, weight: 1.8, profileSignal: 1.8 },
+  unstar: { label: 0.35, weight: 0.45, profileSignal: -0.6 }
 });
 
 function clamp(value, min, max) {
@@ -49,6 +50,16 @@ function createModel({ inputSize = INPUT_SIZE, hiddenSize = HIDDEN_SIZE, seed = 
   };
 }
 
+function createProfile() {
+  return {
+    positiveCentroid: Array.from({ length: INPUT_SIZE }, () => 0),
+    negativeCentroid: Array.from({ length: INPUT_SIZE }, () => 0),
+    positiveWeight: 0,
+    negativeWeight: 0,
+    lastUpdatedAt: null
+  };
+}
+
 function createSuggestionState({ now = new Date().toISOString(), seed = DEFAULT_SEED } = {}) {
   return {
     version: MODEL_VERSION,
@@ -62,6 +73,7 @@ function createSuggestionState({ now = new Date().toISOString(), seed = DEFAULT_
       negativeExamples: 0
     },
     recentEventIds: [],
+    profile: createProfile(),
     fullAbstracts: {}
   };
 }
@@ -94,6 +106,26 @@ function normalizeModel(candidate) {
   };
 }
 
+function normalizeProfile(candidate) {
+  const fallback = createProfile();
+  if (!candidate || typeof candidate !== 'object') return fallback;
+
+  const normalizeVector = value => {
+    if (!Array.isArray(value) || value.length !== INPUT_SIZE) return null;
+    return value.map(item => clamp(Number(item) || 0, -1, 1));
+  };
+  const positiveCentroid = normalizeVector(candidate.positiveCentroid);
+  const negativeCentroid = normalizeVector(candidate.negativeCentroid);
+
+  return {
+    positiveCentroid: positiveCentroid || fallback.positiveCentroid,
+    negativeCentroid: negativeCentroid || fallback.negativeCentroid,
+    positiveWeight: clamp(Number(candidate.positiveWeight) || 0, 0, PROFILE_MAX_WEIGHT),
+    negativeWeight: clamp(Number(candidate.negativeWeight) || 0, 0, PROFILE_MAX_WEIGHT),
+    lastUpdatedAt: typeof candidate.lastUpdatedAt === 'string' ? candidate.lastUpdatedAt : null
+  };
+}
+
 function normalizeSuggestionState(candidate) {
   const fallback = createSuggestionState();
   if (!candidate || typeof candidate !== 'object') return fallback;
@@ -116,6 +148,7 @@ function normalizeSuggestionState(candidate) {
       negativeExamples: Math.max(0, Number(stats.negativeExamples) || 0)
     },
     recentEventIds,
+    profile: normalizeProfile(candidate.profile),
     fullAbstracts: normalizeMap(candidate.fullAbstracts)
   };
 }
@@ -164,7 +197,8 @@ function buildFeatureVector(article, fullAbstract = null) {
   const vector = Array.from({ length: INPUT_SIZE }, () => 0);
   addFieldFeatures(vector, 'title', article?.title, 2.1);
   addFieldFeatures(vector, 'author', article?.author || article?.authors, 1.25);
-  addFieldFeatures(vector, 'abstract', getFullAbstractText(article, fullAbstract), 1);
+  addFieldFeatures(vector, 'abstract', stripMarkup(getFullAbstractText(article, fullAbstract)), 1);
+  addFieldFeatures(vector, 'journal', article?.feedName || article?.journal, 0.65);
 
   const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
   if (magnitude > 0) {
@@ -209,6 +243,66 @@ function predictScore(stateOrModel, article, fullAbstract = null) {
   return forward(model, vector).score;
 }
 
+function cosineSimilarity(left, right) {
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return 0;
+  let dot = 0;
+  let leftMagnitude = 0;
+  let rightMagnitude = 0;
+  for (let i = 0; i < left.length; i++) {
+    dot += left[i] * right[i];
+    leftMagnitude += left[i] * left[i];
+    rightMagnitude += right[i] * right[i];
+  }
+  if (leftMagnitude === 0 || rightMagnitude === 0) return 0;
+  return dot / Math.sqrt(leftMagnitude * rightMagnitude);
+}
+
+function predictProfileScore(state, article, fullAbstract = null) {
+  const profile = state?.profile;
+  if (!profile || (!profile.positiveWeight && !profile.negativeWeight)) return 0.5;
+
+  const vector = buildFeatureVector(article, fullAbstract);
+  const positiveSimilarity = Math.max(0, cosineSimilarity(vector, profile.positiveCentroid));
+  const negativeSimilarity = Math.max(0, cosineSimilarity(vector, profile.negativeCentroid));
+  const confidence = Math.min(1, (profile.positiveWeight + profile.negativeWeight) / 10);
+  const balance = positiveSimilarity - negativeSimilarity * 0.65;
+  return clamp(0.5 + balance * (0.35 + confidence * 0.15), 0, 1);
+}
+
+function predictInterestScore(state, article, fullAbstract = null) {
+  const neuralScore = predictScore(state, article, fullAbstract);
+  const profile = state?.profile;
+  const profileWeight = profile && (profile.positiveWeight || profile.negativeWeight)
+    ? Math.min(0.58, 0.28 + ((profile.positiveWeight + profile.negativeWeight) / 20))
+    : 0;
+  const profileScore = predictProfileScore(state, article, fullAbstract);
+  return clamp(neuralScore * (1 - profileWeight) + profileScore * profileWeight, 0, 1);
+}
+
+function updateInterestProfile(state, vector, config, now) {
+  const signal = Number(config.profileSignal) || 0;
+  if (!state.profile || !signal) return;
+
+  const isPositive = signal > 0;
+  const centroidKey = isPositive ? 'positiveCentroid' : 'negativeCentroid';
+  const weightKey = isPositive ? 'positiveWeight' : 'negativeWeight';
+  const profile = state.profile;
+  const previousWeight = profile[weightKey];
+  const contribution = Math.abs(signal);
+  const nextWeight = Math.min(PROFILE_MAX_WEIGHT, previousWeight + contribution);
+  const learningRate = contribution / Math.max(nextWeight, contribution);
+
+  for (let i = 0; i < vector.length; i++) {
+    profile[centroidKey][i] = clamp(
+      profile[centroidKey][i] + (vector[i] - profile[centroidKey][i]) * learningRate,
+      -1,
+      1
+    );
+  }
+  profile[weightKey] = nextWeight;
+  profile.lastUpdatedAt = now;
+}
+
 function trainOnArticle(state, article, type, { fullAbstract = null, now = new Date().toISOString() } = {}) {
   const config = getEventConfig(type);
   if (!state || !article || !config) return null;
@@ -233,6 +327,7 @@ function trainOnArticle(state, article, type, { fullAbstract = null, now = new D
     }
   }
   model.bias2 = clamp(model.bias2 - learningRate * error, -MAX_WEIGHT, MAX_WEIGHT);
+  updateInterestProfile(state, vector, config, now);
 
   state.stats.eventsProcessed += 1;
   state.stats.trainingExamples += 1;
@@ -255,27 +350,79 @@ function getArticleTimestamp(article) {
   return Number.isFinite(value) ? value : 0;
 }
 
+function getFreshnessScore(timestamp, latestTimestamp) {
+  if (!timestamp || !latestTimestamp) return 0.2;
+  const ageDays = Math.max(0, latestTimestamp - timestamp) / (24 * 60 * 60 * 1000);
+  return Math.exp(-ageDays / 30);
+}
+
+function getFeedKey(article) {
+  return String(article?.feedId || article?.feedName || 'unknown');
+}
+
 function rankArticles(articles, state, { limit = 50 } = {}) {
   const fullAbstracts = state?.fullAbstracts || {};
-  const hasLearningData = Number(state?.stats?.trainingExamples || 0) > 0;
-  const ranked = (articles || []).map(article => {
+  const hasLearningData = Number(state?.stats?.trainingExamples || 0) > 0
+    || Number(state?.profile?.positiveWeight || 0) > 0
+    || Number(state?.profile?.negativeWeight || 0) > 0;
+  const source = Array.isArray(articles) ? articles : [];
+  const latestTimestamp = source.reduce((latest, article) => Math.max(latest, getArticleTimestamp(article)), 0);
+  const ranked = source.map(article => {
     const fullAbstract = getEnrichmentText(fullAbstracts, article.id);
-    const score = predictScore(state, article, fullAbstract);
+    const interestScore = hasLearningData ? predictInterestScore(state, article, fullAbstract) : 0.5;
+    const freshnessScore = getFreshnessScore(getArticleTimestamp(article), latestTimestamp);
+    const explorationScore = 1 - Math.abs(interestScore - 0.5) * 2;
     return {
       ...article,
       ...(fullAbstract ? { fullAbstract } : {}),
-      suggestionScore: Math.round(score * 1000) / 1000
+      interestScore,
+      freshnessScore,
+      explorationScore,
+      feedKey: getFeedKey(article)
     };
   });
 
-  ranked.sort((a, b) => {
-    if (hasLearningData && b.suggestionScore !== a.suggestionScore) {
-      return b.suggestionScore - a.suggestionScore;
-    }
-    return getArticleTimestamp(b) - getArticleTimestamp(a);
-  });
+  const selected = [];
+  const remaining = [...ranked];
+  const feedCounts = new Map();
+  const requestedLimit = Math.max(0, Number(limit) || 0);
 
-  return ranked.slice(0, Math.max(0, Number(limit) || 0));
+  while (remaining.length > 0 && selected.length < requestedLimit) {
+    let bestIndex = 0;
+    let bestValue = -Infinity;
+    for (let index = 0; index < remaining.length; index++) {
+      const candidate = remaining[index];
+      const feedCount = feedCounts.get(candidate.feedKey) || 0;
+      const diversityScore = 1 / (1 + feedCount);
+      const value = hasLearningData
+        ? candidate.interestScore * 0.72
+          + candidate.freshnessScore * 0.14
+          + candidate.explorationScore * 0.06
+          + diversityScore * 0.08
+        : candidate.freshnessScore * 0.82
+          + candidate.explorationScore * 0.08
+          + diversityScore * 0.10;
+      const bestCandidate = remaining[bestIndex];
+      if (
+        value > bestValue
+        || (value === bestValue && getArticleTimestamp(candidate) > getArticleTimestamp(bestCandidate))
+      ) {
+        bestIndex = index;
+        bestValue = value;
+      }
+    }
+
+    const [chosen] = remaining.splice(bestIndex, 1);
+    chosen.suggestionScore = Math.round(bestValue * 1000) / 1000;
+    delete chosen.feedKey;
+    delete chosen.interestScore;
+    delete chosen.freshnessScore;
+    delete chosen.explorationScore;
+    selected.push(chosen);
+    feedCounts.set(chosen.feedKey || getFeedKey(chosen), (feedCounts.get(chosen.feedKey || getFeedKey(chosen)) || 0) + 1);
+  }
+
+  return selected;
 }
 
 function decodeHtmlEntities(value) {
@@ -350,6 +497,8 @@ module.exports = {
   INPUT_SIZE,
   MODEL_VERSION,
   buildFeatureVector,
+  predictInterestScore,
+  predictProfileScore,
   createSuggestionState,
   extractAbstractFromHtml,
   getEnrichmentText,

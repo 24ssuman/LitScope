@@ -8,6 +8,8 @@ const {
   extractAbstractFromHtml,
   getEventConfig,
   normalizeSuggestionState,
+  predictInterestScore,
+  predictProfileScore,
   predictScore,
   rankArticles,
   trainOnArticle
@@ -18,6 +20,8 @@ const article = {
   title: 'Cooperative neural potentials for aqueous interfaces',
   author: 'A. Researcher, B. Scientist',
   content: 'We develop a transferable model for molecular simulation and free-energy prediction.',
+  feedName: 'Journal of Computational Chemistry',
+  feedId: 'jcc',
   pubDate: '2026-07-24T08:00:00.000Z'
 };
 
@@ -62,6 +66,32 @@ test('all active article interactions train the model without explicit feedback 
   assert.equal(state.stats.negativeExamples, 1);
 });
 
+test('the interest profile generalizes active clicks to similar article text', () => {
+  const state = createSuggestionState();
+  const similar = {
+    ...article,
+    id: 'article-2',
+    title: 'Cooperative neural potentials for liquid interfaces',
+    content: 'A transferable model for molecular simulation and free-energy prediction.',
+    pubDate: '2026-07-24T07:00:00.000Z'
+  };
+  const unrelated = {
+    ...article,
+    id: 'article-3',
+    title: 'A new catalyst for carbon dioxide conversion',
+    author: 'C. Chemist',
+    content: 'We report a catalytic reaction mechanism for selective organic synthesis.',
+    feedName: 'Organic Letters',
+    feedId: 'ol'
+  };
+
+  for (let i = 0; i < 6; i++) trainOnArticle(state, article, 'open');
+
+  assert.ok(state.profile.positiveWeight > 0);
+  assert.ok(predictProfileScore(state, similar) > predictProfileScore(state, unrelated));
+  assert.ok(predictInterestScore(state, similar) > predictInterestScore(state, unrelated));
+});
+
 test('suggestion ranking includes score and fuller abstract data', () => {
   const state = createSuggestionState();
   state.fullAbstracts[article.id] = { text: 'The fuller publisher abstract.' };
@@ -88,8 +118,9 @@ test('malformed persisted state is normalized without losing the model contract'
     stats: { trainingExamples: 3 },
     model: { inputSize: 1 }
   });
-  assert.equal(normalized.version, 1);
+  assert.equal(normalized.version, 2);
   assert.equal(normalized.stats.trainingExamples, 3);
   assert.equal(normalized.model.inputSize, 256);
   assert.equal(normalized.model.hiddenSize, 12);
+  assert.equal(normalized.profile.positiveCentroid.length, 256);
 });
