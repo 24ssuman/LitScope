@@ -12,7 +12,6 @@ const {
   getEnrichmentText,
   getEventConfig,
   getEventType,
-  markFeedback,
   normalizeSuggestionState,
   rankArticles,
   trainOnArticle
@@ -339,10 +338,7 @@ function loadSuggestionState() {
 }
 
 function getSuggestionCandidates() {
-  const dismissed = suggestionState.dismissed || {};
-  const eligible = db.articles.filter(article => (
-    !dismissed[article.id] && !article.starred
-  ));
+  const eligible = db.articles.filter(article => !article.starred);
   const unread = eligible.filter(article => !article.read);
   const candidates = unread.length > 0 ? unread : eligible;
 
@@ -412,7 +408,6 @@ function processSuggestionQueue() {
         fullAbstract,
         now: event.occurredAt
       });
-      markFeedback(suggestionState, article.id, event.type, event.occurredAt);
 
       if (event.eventId) {
         suggestionState.recentEventIds.push(event.eventId);
@@ -1451,7 +1446,7 @@ app.get('/api/articles/:id/abstract', async (req, res) => {
   });
 });
 
-// 8. Queue implicit/explicit feedback. Model updates are deliberately batched
+// 8. Queue active article interactions. Model updates are deliberately batched
 // on the server and persisted to suggestions.json outside the request path.
 app.post('/api/suggestions/events', (req, res) => {
   const submitted = Array.isArray(req.body) ? req.body : req.body?.events;

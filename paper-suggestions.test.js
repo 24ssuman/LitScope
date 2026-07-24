@@ -24,6 +24,8 @@ const article = {
 test('passive read/seen state is not a model event', () => {
   assert.equal(getEventConfig('read'), null);
   assert.equal(getEventConfig('impression'), null);
+  assert.equal(getEventConfig('like'), null);
+  assert.equal(getEventConfig('not-for-me'), null);
 });
 
 test('title, authors, and abstract all contribute to hashed features', () => {
@@ -51,14 +53,13 @@ test('the cold-start neural ranker learns an active positive signal', () => {
   assert.equal(state.stats.positiveExamples, 8);
 });
 
-test('explicit negative feedback lowers the article score', () => {
+test('all active article interactions train the model without explicit feedback controls', () => {
   const state = createSuggestionState();
-  const before = predictScore(state, article);
-  for (let i = 0; i < 8; i++) trainOnArticle(state, article, 'not-for-me');
-  const after = predictScore(state, article);
+  ['open', 'external', 'star', 'unstar'].forEach(type => trainOnArticle(state, article, type));
 
-  assert.ok(after < before, `expected ${after} to be below ${before}`);
-  assert.equal(state.stats.negativeExamples, 8);
+  assert.equal(state.stats.trainingExamples, 4);
+  assert.equal(state.stats.positiveExamples, 3);
+  assert.equal(state.stats.negativeExamples, 1);
 });
 
 test('suggestion ranking includes score and fuller abstract data', () => {

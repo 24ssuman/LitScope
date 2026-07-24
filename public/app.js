@@ -59,7 +59,7 @@ const API = {
       body: JSON.stringify({ events }),
       keepalive: true
     });
-    if (!res.ok) throw new Error('Failed to queue suggestion feedback');
+    if (!res.ok) throw new Error('Failed to queue suggestion interactions');
     return res.json();
   },
   async addFeed(name, url, category) {
@@ -346,7 +346,7 @@ async function flushSuggestionEvents() {
   const events = state.suggestionEventQueue.splice(0, 100);
   state.suggestionFlushPromise = API.recordSuggestionEvents(events)
     .catch(err => {
-      console.warn('Suggestion feedback could not be queued:', err.message);
+      console.warn('Suggestion interactions could not be queued:', err.message);
       state.suggestionEventQueue.unshift(...events);
     })
     .finally(() => {
@@ -765,20 +765,7 @@ async function loadArticles() {
 function getSuggestionScoreMarkup(article) {
   if (state.activeFeedId !== 'suggested' || article.suggestionScore === undefined) return '';
   const score = Math.round(Math.max(0, Math.min(1, Number(article.suggestionScore) || 0)) * 100);
-  return `<span class="suggestion-score" title="Predicted interest from active reading feedback">${score}% match</span>`;
-}
-
-function getSuggestionFeedbackMarkup(article) {
-  if (state.activeFeedId !== 'suggested') return '';
-  const liked = article.suggestionFeedback === 'liked';
-  return `
-    <button class="card-action-btn suggestion-feedback suggestion-like ${liked ? 'active' : ''}" title="Like this suggestion" aria-label="Like this suggestion">
-      <i data-lucide="thumbs-up"></i>
-    </button>
-    <button class="card-action-btn suggestion-feedback suggestion-dismiss" title="Not for me" aria-label="Not for me">
-      <i data-lucide="thumbs-down"></i>
-    </button>
-  `;
+  return `<span class="suggestion-score" title="Predicted interest from article interactions">${score}% match</span>`;
 }
 
 function updateStreamEmptyState(isSuggestedView) {
@@ -786,7 +773,7 @@ function updateStreamEmptyState(isSuggestedView) {
   const message = DOM.streamEmpty.querySelector('p');
   if (isSuggestedView) {
     heading.innerText = 'No suggestions yet';
-    message.innerText = 'Open a few papers or use the feedback buttons and LitScope will learn your taste in the background.';
+    message.innerText = 'Open or visit a few papers and LitScope will learn your taste in the background.';
   } else {
     heading.innerText = "You're all caught up!";
     message.innerText = 'No unread articles in this view. Try fetching fresh articles or changing the filter.';
@@ -797,7 +784,7 @@ function appendSuggestionIntro() {
   const meta = state.suggestionMeta || {};
   const examples = Number(meta.trainingExamples || 0);
   const description = meta.coldStart
-    ? 'This list is starting cold. Open, star, like, or dismiss papers to teach the ranker what matters to you.'
+    ? 'This list is starting cold. Open, visit, or star papers to teach the ranker what matters to you.'
     : 'The ranker learns from active interactions across every journal while passive seen/read state stays neutral.';
   const intro = document.createElement('div');
   intro.className = 'suggestion-intro';
@@ -898,7 +885,6 @@ function renderArticles() {
             <button class="card-action-btn star-toggle ${isStarred ? 'starred' : ''}">
               <i data-lucide="star"></i>
             </button>
-            ${getSuggestionFeedbackMarkup(article)}
             <button class="card-action-btn read-toggle is-read">
               <i data-lucide="check"></i>
             </button>
@@ -926,7 +912,6 @@ function renderArticles() {
               <button class="card-action-btn star-toggle ${isStarred ? 'starred' : ''}">
                 <i data-lucide="star"></i>
               </button>
-              ${getSuggestionFeedbackMarkup(article)}
               <button class="card-action-btn read-toggle is-read">
                 <i data-lucide="check"></i>
               </button>
@@ -956,7 +941,6 @@ function renderArticles() {
               <button class="card-action-btn star-toggle ${isStarred ? 'starred' : ''}">
                 <i data-lucide="star"></i>
               </button>
-              ${getSuggestionFeedbackMarkup(article)}
               <button class="card-action-btn read-toggle is-read">
                 <i data-lucide="check"></i>
               </button>
@@ -990,30 +974,6 @@ function renderArticles() {
         }
         await updateBadgeCounts(await API.getStatus());
       });
-
-      const likeButton = itemEl.querySelector('.suggestion-like');
-      if (likeButton) {
-        likeButton.addEventListener('click', (e) => {
-          e.stopPropagation();
-          if (article.suggestionFeedback === 'liked') return;
-          article.suggestionFeedback = 'liked';
-          likeButton.classList.add('active');
-          queueSuggestionEvent(article, 'like');
-          showToast('Thanks — suggestion preference saved.', 'success');
-        });
-      }
-
-      const dismissButton = itemEl.querySelector('.suggestion-dismiss');
-      if (dismissButton) {
-        dismissButton.addEventListener('click', (e) => {
-          e.stopPropagation();
-          queueSuggestionEvent(article, 'not-for-me', { immediate: true });
-          state.articles = state.articles.filter(item => item.id !== article.id);
-          itemEl.remove();
-          showToast('We will show fewer papers like this.', 'info');
-          void API.getStatus().then(updateBadgeCounts).catch(() => {});
-        });
-      }
 
       // Toggle read status manually
       itemEl.querySelector('.read-toggle').addEventListener('click', async (e) => {

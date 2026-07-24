@@ -13,9 +13,7 @@ const EVENT_TYPES = Object.freeze({
   open: { label: 0.72, weight: 1 },
   external: { label: 0.9, weight: 1.35 },
   star: { label: 1, weight: 1.8 },
-  like: { label: 1, weight: 1.5 },
-  unstar: { label: 0.35, weight: 0.45 },
-  not_for_me: { label: 0, weight: 1.8 }
+  unstar: { label: 0.35, weight: 0.45 }
 });
 
 function clamp(value, min, max) {
@@ -64,8 +62,6 @@ function createSuggestionState({ now = new Date().toISOString(), seed = DEFAULT_
       negativeExamples: 0
     },
     recentEventIds: [],
-    dismissed: {},
-    feedback: {},
     fullAbstracts: {}
   };
 }
@@ -120,8 +116,6 @@ function normalizeSuggestionState(candidate) {
       negativeExamples: Math.max(0, Number(stats.negativeExamples) || 0)
     },
     recentEventIds,
-    dismissed: normalizeMap(candidate.dismissed),
-    feedback: normalizeMap(candidate.feedback),
     fullAbstracts: normalizeMap(candidate.fullAbstracts)
   };
 }
@@ -270,8 +264,7 @@ function rankArticles(articles, state, { limit = 50 } = {}) {
     return {
       ...article,
       ...(fullAbstract ? { fullAbstract } : {}),
-      suggestionScore: Math.round(score * 1000) / 1000,
-      suggestionFeedback: state?.feedback?.[article.id] || null
+      suggestionScore: Math.round(score * 1000) / 1000
     };
   });
 
@@ -283,17 +276,6 @@ function rankArticles(articles, state, { limit = 50 } = {}) {
   });
 
   return ranked.slice(0, Math.max(0, Number(limit) || 0));
-}
-
-function markFeedback(state, articleId, type, now = new Date().toISOString()) {
-  const normalizedType = getEventType(type);
-  if (!state || !articleId) return;
-  if (normalizedType === 'not_for_me') {
-    state.dismissed[articleId] = now;
-    state.feedback[articleId] = 'not-for-me';
-  } else if (normalizedType === 'like') {
-    state.feedback[articleId] = 'liked';
-  }
 }
 
 function decodeHtmlEntities(value) {
@@ -373,7 +355,6 @@ module.exports = {
   getEnrichmentText,
   getEventConfig,
   getEventType,
-  markFeedback,
   normalizeSuggestionState,
   predictScore,
   rankArticles,

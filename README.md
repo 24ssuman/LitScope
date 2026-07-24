@@ -28,7 +28,7 @@ Crossref requests are serialized and automatically retried after temporary rate 
 
 ## Suggested papers
 
-The **Suggested** sidebar tab ranks recent papers from every journal using a small online neural network over title, author, and abstract text features. It starts with a lightly randomized cold-start model, then learns from active interactions—opening the abstract drawer, visiting the publisher page, stars, likes, and “Not for me” feedback. Passive visibility and read/seen state have no model weight. The model, feedback, and best-effort fuller abstracts are stored separately in the ignored local `suggestions.json` file, so the existing article database and read/star state keep their original shape.
+The **Suggested** sidebar tab ranks recent papers from every journal using a local online model over title, author, and abstract text features. It starts with a lightly randomized cold-start model, then learns from active interactions in every feed—opening an article, visiting the publisher page, and starring or unstarring it. Passive visibility and read/seen state have no model weight. The model and best-effort fuller abstracts are stored separately in the ignored local `suggestions.json` file, so the existing article database and read/star state keep their original shape.
 
 Publisher abstract enrichment is best-effort and asynchronous. A blocked or slow publisher cannot prevent the article drawer or normal feed reading from working.
 

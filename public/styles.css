@@ -719,15 +719,6 @@ button, input {
   background: var(--accent-light);
 }
 
-.suggestion-feedback.active {
-  color: var(--accent-color);
-  background: var(--accent-light);
-}
-
-.suggestion-dismiss:hover {
-  color: var(--danger-color);
-}
-
 /* EMPTY STATE styling */
 .stream-empty {
   display: flex;
