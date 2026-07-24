@@ -7,6 +7,17 @@ const Parser = require('rss-parser');
 const { createCrossrefClient } = require('./crossref-client');
 const { resolveArticleReadState } = require('./article-read-state');
 const {
+  createSuggestionState,
+  extractAbstractFromHtml,
+  getEnrichmentText,
+  getEventConfig,
+  getEventType,
+  markFeedback,
+  normalizeSuggestionState,
+  rankArticles,
+  trainOnArticle
+} = require('./paper-suggestions');
+const {
   createDefaultFeeds,
   getChemRxivCategories,
   getCrossrefFallbacks,
@@ -18,6 +29,10 @@ const {
 const app = express();
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'db.json');
+const SUGGESTIONS_PATH = path.join(__dirname, 'suggestions.json');
+const SUGGESTION_BATCH_DELAY_MS = 750;
+const SUGGESTION_BATCH_SIZE = 40;
+const FULL_ABSTRACT_TIMEOUT_MS = 7000;
 
 app.use(cors());
 app.use(express.json());
@@ -112,6 +127,12 @@ let db = {
     showUnreadOnly: true
   }
 };
+
+let suggestionState = createSuggestionState();
+let suggestionQueue = [];
+let suggestionBatchTimer = null;
+let suggestionUpdateInProgress = false;
+const fullAbstractRequests = new Map();
 
 // Load database from file
 function loadDB() {
@@ -291,6 +312,189 @@ function saveDB() {
   } catch (err) {
     console.error('Error saving database:', err);
   }
+}
+
+function saveSuggestionState() {
+  try {
+    fs.writeFileSync(SUGGESTIONS_PATH, JSON.stringify(suggestionState, null, 2), 'utf8');
+  } catch (err) {
+    console.error('Error saving suggestion model:', err);
+  }
+}
+
+function loadSuggestionState() {
+  try {
+    if (fs.existsSync(SUGGESTIONS_PATH)) {
+      const raw = fs.readFileSync(SUGGESTIONS_PATH, 'utf8');
+      suggestionState = normalizeSuggestionState(JSON.parse(raw));
+    } else {
+      suggestionState = createSuggestionState();
+      saveSuggestionState();
+    }
+  } catch (err) {
+    console.error('Error loading suggestion model, starting a fresh predictor:', err.message);
+    suggestionState = createSuggestionState();
+    saveSuggestionState();
+  }
+}
+
+function getSuggestionCandidates() {
+  const dismissed = suggestionState.dismissed || {};
+  const eligible = db.articles.filter(article => (
+    !dismissed[article.id] && !article.starred
+  ));
+  const unread = eligible.filter(article => !article.read);
+  const candidates = unread.length > 0 ? unread : eligible;
+
+  return candidates.sort((a, b) => (
+    new Date(b.pubDate || 0) - new Date(a.pubDate || 0)
+  ));
+}
+
+function getSuggestionSummary() {
+  const stats = suggestionState.stats || {};
+  return {
+    eventsProcessed: stats.eventsProcessed || 0,
+    trainingExamples: stats.trainingExamples || 0,
+    positiveExamples: stats.positiveExamples || 0,
+    negativeExamples: stats.negativeExamples || 0,
+    coldStart: (stats.trainingExamples || 0) < 5,
+    updatedAt: suggestionState.updatedAt || null
+  };
+}
+
+function scheduleSuggestionBatch() {
+  if (suggestionBatchTimer || suggestionUpdateInProgress) return;
+  suggestionBatchTimer = setTimeout(() => {
+    suggestionBatchTimer = null;
+    processSuggestionQueue();
+  }, SUGGESTION_BATCH_DELAY_MS);
+}
+
+function enqueueSuggestionEvents(events = []) {
+  let queued = 0;
+  events.forEach(event => {
+    const articleId = String(event?.articleId || '').trim();
+    const type = getEventType(event?.type);
+    if (!articleId || !getEventConfig(type)) return;
+
+    suggestionQueue.push({
+      articleId,
+      type,
+      eventId: String(event?.eventId || '').slice(0, 160),
+      occurredAt: String(event?.occurredAt || new Date().toISOString()).slice(0, 40)
+    });
+    queued++;
+  });
+
+  if (queued > 0) scheduleSuggestionBatch();
+  return queued;
+}
+
+function processSuggestionQueue() {
+  if (suggestionUpdateInProgress || suggestionQueue.length === 0) return;
+  suggestionUpdateInProgress = true;
+  const batch = suggestionQueue.splice(0, SUGGESTION_BATCH_SIZE);
+  const seenEventIds = new Set(suggestionState.recentEventIds || []);
+  let index = 0;
+
+  const processChunk = () => {
+    const end = Math.min(index + 8, batch.length);
+    while (index < end) {
+      const event = batch[index++];
+      if (event.eventId && seenEventIds.has(event.eventId)) continue;
+
+      const article = db.articles.find(item => item.id === event.articleId);
+      if (!article) continue;
+
+      const fullAbstract = getEnrichmentText(suggestionState.fullAbstracts, article.id);
+      trainOnArticle(suggestionState, article, event.type, {
+        fullAbstract,
+        now: event.occurredAt
+      });
+      markFeedback(suggestionState, article.id, event.type, event.occurredAt);
+
+      if (event.eventId) {
+        suggestionState.recentEventIds.push(event.eventId);
+        seenEventIds.add(event.eventId);
+      }
+    }
+
+    if (index < batch.length) {
+      setImmediate(processChunk);
+      return;
+    }
+
+    suggestionState.recentEventIds = suggestionState.recentEventIds.slice(-1000);
+    saveSuggestionState();
+    suggestionUpdateInProgress = false;
+    if (suggestionQueue.length > 0) scheduleSuggestionBatch();
+  };
+
+  setImmediate(processChunk);
+}
+
+function getCachedFullAbstract(articleId) {
+  return getEnrichmentText(suggestionState.fullAbstracts, articleId);
+}
+
+function isFetchableExternalUrl(value) {
+  try {
+    const parsed = new URL(value);
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && !['localhost', '127.0.0.1', '::1'].includes(parsed.hostname);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function fetchFullAbstract(article) {
+  if (!article || !isFetchableExternalUrl(article.link)) return null;
+  const cached = getCachedFullAbstract(article.id);
+  if (cached) return { fullAbstract: cached, cached: true };
+  if (fullAbstractRequests.has(article.id)) return fullAbstractRequests.get(article.id);
+
+  const request = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), FULL_ABSTRACT_TIMEOUT_MS);
+    try {
+      const response = await fetch(article.link, {
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Mozilla/5.0 LitScope/1.0',
+          'Accept': 'text/html,application/xhtml+xml'
+        }
+      });
+      if (!response.ok) return null;
+
+      const html = (await response.text()).slice(0, 5_000_000);
+      const fullAbstract = extractAbstractFromHtml(html);
+      if (!fullAbstract) return null;
+
+      suggestionState.fullAbstracts[article.id] = {
+        text: fullAbstract,
+        fetchedAt: new Date().toISOString(),
+        sourceUrl: response.url || article.link
+      };
+      saveSuggestionState();
+      return {
+        fullAbstract,
+        sourceUrl: response.url || article.link,
+        cached: false
+      };
+    } catch (err) {
+      if (err.name !== 'AbortError') {
+        console.warn(`Full abstract lookup failed for ${article.id}: ${err.message}`);
+      }
+      return null;
+    } finally {
+      clearTimeout(timeout);
+      fullAbstractRequests.delete(article.id);
+    }
+  })();
+
+  fullAbstractRequests.set(article.id, request);
+  return request;
 }
 
 // Generate unique ID based on a string (e.g., link or GUID)
@@ -1217,7 +1421,49 @@ app.get('/api/articles', (req, res) => {
   });
 });
 
-// 6. POST mark article read/unread
+// 6. GET personalized article suggestions across every journal
+app.get('/api/suggestions', (req, res) => {
+  const requestedLimit = Number.parseInt(req.query.limit, 10);
+  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
+  const candidates = getSuggestionCandidates();
+  const articles = rankArticles(candidates, suggestionState, { limit });
+
+  res.json({
+    articles,
+    total: candidates.length,
+    limit,
+    model: getSuggestionSummary()
+  });
+});
+
+// 7. Best-effort publisher abstract enrichment. The client calls this after
+// opening the drawer, so a slow or blocked publisher never delays article use.
+app.get('/api/articles/:id/abstract', async (req, res) => {
+  const article = db.articles.find(item => item.id === req.params.id);
+  if (!article) return res.status(404).json({ error: 'Article not found' });
+
+  const result = await fetchFullAbstract(article);
+  res.json({
+    articleId: article.id,
+    fullAbstract: result?.fullAbstract || null,
+    sourceUrl: result?.sourceUrl || null,
+    cached: Boolean(result?.cached)
+  });
+});
+
+// 8. Queue implicit/explicit feedback. Model updates are deliberately batched
+// on the server and persisted to suggestions.json outside the request path.
+app.post('/api/suggestions/events', (req, res) => {
+  const submitted = Array.isArray(req.body) ? req.body : req.body?.events;
+  if (!Array.isArray(submitted)) {
+    return res.status(400).json({ error: 'events must be an array' });
+  }
+
+  const queued = enqueueSuggestionEvents(submitted.slice(0, 100));
+  res.json({ status: 'queued', queued });
+});
+
+// 9. POST mark article read/unread
 app.post('/api/articles/:id/read', (req, res) => {
   const { id } = req.params;
   const { read = true } = req.body;
@@ -1236,7 +1482,7 @@ app.post('/api/articles/:id/read', (req, res) => {
   res.json(article);
 });
 
-// 7. POST mark all articles as read (scoped to feed or category)
+// 10. POST mark all articles as read (scoped to feed or category)
 app.post('/api/articles/read-all', (req, res) => {
   const { feedId, category } = req.body;
   let count = 0;
@@ -1268,7 +1514,7 @@ app.post('/api/articles/read-all', (req, res) => {
   res.json({ success: true, markedReadCount: count });
 });
 
-// 8. POST mark article starred/unstarred
+// 11. POST mark article starred/unstarred
 app.post('/api/articles/:id/star', (req, res) => {
   const { id } = req.params;
   const { starred = true } = req.body;
@@ -1282,7 +1528,7 @@ app.post('/api/articles/:id/star', (req, res) => {
   res.json(article);
 });
 
-// 9. SSE Feed Refresh endpoint for real-time progress bar
+// 12. SSE Feed Refresh endpoint for real-time progress bar
 let clients = [];
 let refreshInProgress = false;
 app.get('/api/refresh-stream', (req, res) => {
@@ -1361,7 +1607,7 @@ app.post('/api/refresh', async (req, res) => {
   }
 });
 
-// 10. POST reset DB to default feeds and clear articles
+// 13. POST reset DB to default feeds and clear articles
 app.post('/api/reset', (req, res) => {
   db.feeds = DEFAULT_FEEDS.map(f => ({
     ...f,
@@ -1374,7 +1620,7 @@ app.post('/api/reset', (req, res) => {
   res.json({ message: 'Database reset to default journal feeds' });
 });
 
-// 11. GET dashboard states for client initialization
+// 14. GET dashboard states for client initialization
 app.get('/api/status', (req, res) => {
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -1384,11 +1630,13 @@ app.get('/api/status', (req, res) => {
     totalArticles: db.articles.length,
     unreadArticles: db.articles.filter(a => !a.read).length,
     todayUnreadArticles: db.articles.filter(a => !a.read && new Date(a.pubDate) >= startOfToday).length,
-    starredArticles: db.articles.filter(a => a.starred).length
+    starredArticles: db.articles.filter(a => a.starred).length,
+    suggestedArticles: getSuggestionCandidates().length,
+    suggestions: getSuggestionSummary()
   });
 });
 
-// 12. POST update settings
+// 15. POST update settings
 app.post('/api/settings', (req, res) => {
   const { theme, viewMode, showUnreadOnly } = req.body;
   if (theme !== undefined) db.settings.theme = theme;
@@ -1401,6 +1649,7 @@ app.post('/api/settings', (req, res) => {
 
 // Load the database first and start server
 loadDB();
+loadSuggestionState();
 const repairedFeedUrls = repairConfiguredFeedUrls();
 const repairedFallbackLinks = repairGeneratedFallbackArticleLinks();
 const prunedFallbackArticles = pruneGeneratedFallbackArticles();

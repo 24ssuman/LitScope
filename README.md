@@ -8,6 +8,7 @@ Local Express app for tracking recent chemistry and computational chemistry arti
 - `db.json` stores feeds, articles, and UI settings.
 - `articles_archive.csv` mirrors saved article metadata for spreadsheet use.
 - `public/` contains the browser UI.
+- `paper-suggestions.js` contains the local online neural ranker and abstract extraction helpers.
 
 ## Run
 
@@ -24,6 +25,12 @@ Crossref requests are serialized and automatically retried after temporary rate 
 - Use **All articles** to filter by journal, author, and date, then order results by date or journal.
 - Search accepts article titles, authors, journal names, abstracts, and DOI fragments.
 - Open any article to copy a simple share-ready citation, or press `c` when it is selected.
+
+## Suggested papers
+
+The **Suggested** sidebar tab ranks recent papers from every journal using a small online neural network over title, author, and abstract text features. It starts with a lightly randomized cold-start model, then learns from active interactions—opening the abstract drawer, visiting the publisher page, stars, likes, and “Not for me” feedback. Passive visibility and read/seen state have no model weight. The model, feedback, and best-effort fuller abstracts are stored separately in the ignored local `suggestions.json` file, so the existing article database and read/star state keep their original shape.
+
+Publisher abstract enrichment is best-effort and asynchronous. A blocked or slow publisher cannot prevent the article drawer or normal feed reading from working.
 
 ## Add another journal
 

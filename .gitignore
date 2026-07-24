@@ -14,6 +14,7 @@ yarn-error.log*
 db.json
 read_history.json
 articles_archive.csv
+suggestions.json
 local/
 personal/
 private/

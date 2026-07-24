@@ -43,6 +43,11 @@
           <span>Today</span>
           <span class="badge" id="count-today">0</span>
         </a>
+        <a href="#" class="nav-item" id="nav-suggested">
+          <i data-lucide="sparkles"></i>
+          <span>Suggested</span>
+          <span class="badge" id="count-suggested">0</span>
+        </a>
         <a href="#" class="nav-item" id="nav-new">
           <i data-lucide="bell"></i>
           <span>New Articles</span>
@@ -223,6 +228,7 @@
         
         <div class="drawer-divider"></div>
         <div class="drawer-content-header">ABSTRACT</div>
+        <div class="abstract-status hidden" id="drawer-abstract-status"></div>
         <div class="drawer-content" id="drawer-content">
           We introduce a machine learning potential trained on coupled-cluster calculations to predict transition state geometries and activation barriers. The model reduces computational cost by five orders of magnitude while preserving chemical accuracy within 1 kcal/mol.
         </div>
