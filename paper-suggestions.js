@@ -4,6 +4,7 @@
 // outside db.json so personal article/read/star state remains compatible with
 // existing LitScope installations.
 const MODEL_VERSION = 2;
+const SUGGESTION_EVENT_SCHEMA_VERSION = 1;
 const INPUT_SIZE = 256;
 const HIDDEN_SIZE = 12;
 const DEFAULT_SEED = 0x51f15e77;
@@ -152,6 +153,58 @@ function normalizeSuggestionState(candidate) {
     profile: normalizeProfile(candidate.profile),
     fullAbstracts: normalizeMap(candidate.fullAbstracts)
   };
+}
+
+function normalizeSnapshotValue(value) {
+  if (value === undefined || value === null) return null;
+  if (Array.isArray(value)) return value.map(item => String(item)).join(', ');
+  return String(value);
+}
+
+function createSuggestionArticleSnapshot(article, fullAbstract = null) {
+  if (!article || typeof article !== 'object') return null;
+
+  return {
+    id: normalizeSnapshotValue(article.id),
+    feedId: normalizeSnapshotValue(article.feedId),
+    feedName: normalizeSnapshotValue(article.feedName || article.journal),
+    title: normalizeSnapshotValue(article.title),
+    author: normalizeSnapshotValue(article.author || article.authors),
+    content: normalizeSnapshotValue(article.content),
+    fullAbstract: normalizeSnapshotValue(fullAbstract || article.fullAbstract),
+    doi: normalizeSnapshotValue(article.doi),
+    link: normalizeSnapshotValue(article.link),
+    guid: normalizeSnapshotValue(article.guid),
+    pubDate: normalizeSnapshotValue(article.pubDate),
+    fetchedAt: normalizeSnapshotValue(article.fetchedAt)
+  };
+}
+
+function createSuggestionEventRecord(
+  event,
+  article = null,
+  { fullAbstract = null, metadata = null, recordedAt = new Date().toISOString() } = {}
+) {
+  const occurredAt = String(event?.occurredAt || recordedAt).slice(0, 40);
+  const type = getEventType(event?.type);
+  return {
+    schemaVersion: SUGGESTION_EVENT_SCHEMA_VERSION,
+    eventId: String(event?.eventId || '').slice(0, 160) || null,
+    articleId: String(event?.articleId || article?.id || '').trim() || null,
+    type,
+    trainingEligible: Boolean(getEventConfig(type)),
+    occurredAt,
+    recordedAt,
+    metadata: metadata && typeof metadata === 'object' ? metadata : null,
+    articleSnapshot: createSuggestionArticleSnapshot(article, fullAbstract)
+  };
+}
+
+function serializeSuggestionEventRecords(records = []) {
+  const lines = records
+    .filter(record => record && typeof record === 'object')
+    .map(record => JSON.stringify(record));
+  return lines.length > 0 ? `${lines.join('\n')}\n` : '';
 }
 
 function hashString(value) {
@@ -498,7 +551,10 @@ module.exports = {
   HIDDEN_SIZE,
   INPUT_SIZE,
   MODEL_VERSION,
+  SUGGESTION_EVENT_SCHEMA_VERSION,
   buildFeatureVector,
+  createSuggestionArticleSnapshot,
+  createSuggestionEventRecord,
   predictInterestScore,
   predictProfileScore,
   createSuggestionState,
@@ -509,6 +565,7 @@ module.exports = {
   normalizeSuggestionState,
   predictScore,
   rankArticles,
+  serializeSuggestionEventRecords,
   stripMarkup,
   trainOnArticle
 };

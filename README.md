@@ -9,6 +9,7 @@ Local Express app for tracking recent chemistry and computational chemistry arti
 - `articles_archive.csv` mirrors saved article metadata for spreadsheet use.
 - `public/` contains the browser UI.
 - `paper-suggestions.js` contains the local online neural ranker and abstract extraction helpers.
+- `suggestion_events.jsonl` is an ignored append-only local log of captured suggestion/read interactions and stable article snapshots for future model replay.
 
 ## Run
 
@@ -28,7 +29,7 @@ Crossref requests are serialized and automatically retried after temporary rate 
 
 ## Suggested papers
 
-The **Suggested** sidebar tab ranks recent papers from every journal with a local hybrid recommender. A small online neural model learns title, author, abstract, and journal features; a content-interest profile generalizes clicked papers to similar text; and the final feed uses freshness, exploration, and journal diversity signals. It starts cold, then learns from active interactions in every feed—opening an article, visiting the publisher page, and starring or unstarring it. When a publisher exposes a fuller abstract, that text is added as a lighter follow-up signal for the same active interaction. Passive visibility and read/seen state have no model weight. The model and best-effort fuller abstracts are stored separately in the ignored local `suggestions.json` file, so the existing article database and read/star state keep their original shape.
+The **Suggested** sidebar tab ranks recent papers from every journal with a local hybrid recommender. A small online neural model learns title, author, abstract, and journal features; a content-interest profile generalizes clicked papers to similar text; and the final feed uses freshness, exploration, and journal diversity signals. It starts cold, then learns from active interactions in every feed—opening an article, visiting the publisher page, and starring or unstarring it. When a publisher exposes a fuller abstract, that text is added as a lighter follow-up signal for the same active interaction. The current model keeps passive visibility and read/seen state neutral, while the raw history log records explicit read/unread transitions as `trainingEligible: false` records for possible future use. The current model and cached fuller abstracts remain in ignored local `suggestions.json`; captured interaction records are appended to ignored local `suggestion_events.jsonl` with event metadata and a stable paper snapshot. This raw log is the replayable history for future model changes and does not overwrite the existing article database or read/star state. Events accumulated before this log was added cannot be reconstructed from the current model file; passive visibility was never captured.
 
 Publisher abstract enrichment is best-effort and asynchronous. A blocked or slow publisher cannot prevent the article drawer or normal feed reading from working.
 

@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const {
   buildFeatureVector,
+  createSuggestionEventRecord,
   createSuggestionState,
   extractAbstractFromHtml,
   getEventConfig,
@@ -12,6 +13,7 @@ const {
   predictProfileScore,
   predictScore,
   rankArticles,
+  serializeSuggestionEventRecords,
   trainOnArticle
 } = require('./paper-suggestions');
 
@@ -31,6 +33,43 @@ test('passive read/seen state is not a model event', () => {
   assert.equal(getEventConfig('like'), null);
   assert.equal(getEventConfig('not-for-me'), null);
   assert.ok(getEventConfig('abstract'));
+});
+
+test('suggestion event records preserve replayable paper metadata without mutable UI state', () => {
+  const record = createSuggestionEventRecord(
+    {
+      articleId: article.id,
+      type: 'open',
+      eventId: 'session-1:1',
+      occurredAt: '2026-08-03T15:00:00.000Z'
+    },
+    { ...article, read: true, starred: true },
+    {
+      fullAbstract: 'A fuller publisher abstract for replay.',
+      recordedAt: '2026-08-03T15:00:01.000Z'
+    }
+  );
+
+  assert.equal(record.schemaVersion, 1);
+  assert.equal(record.eventId, 'session-1:1');
+  assert.equal(record.type, 'open');
+  assert.equal(record.trainingEligible, true);
+  assert.equal(record.articleSnapshot.title, article.title);
+  assert.equal(record.articleSnapshot.fullAbstract, 'A fuller publisher abstract for replay.');
+  assert.equal('read' in record.articleSnapshot, false);
+  assert.equal('starred' in record.articleSnapshot, false);
+
+  const lines = serializeSuggestionEventRecords([record]).trim().split('\n');
+  assert.equal(lines.length, 1);
+  assert.deepEqual(JSON.parse(lines[0]), record);
+
+  const readRecord = createSuggestionEventRecord(
+    { articleId: article.id, type: 'read', eventId: 'session-1:2' },
+    article,
+    { metadata: { read: true, source: 'article' } }
+  );
+  assert.equal(readRecord.trainingEligible, false);
+  assert.deepEqual(readRecord.metadata, { read: true, source: 'article' });
 });
 
 test('title, authors, and abstract all contribute to hashed features', () => {

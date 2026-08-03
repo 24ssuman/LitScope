@@ -15,6 +15,8 @@ const {
   MODEL_VERSION,
   normalizeSuggestionState,
   rankArticles,
+  createSuggestionEventRecord,
+  serializeSuggestionEventRecords,
   trainOnArticle
 } = require('./paper-suggestions');
 const {
@@ -30,6 +32,7 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 const DB_PATH = path.join(__dirname, 'db.json');
 const SUGGESTIONS_PATH = path.join(__dirname, 'suggestions.json');
+const SUGGESTION_EVENTS_PATH = path.join(__dirname, 'suggestion_events.jsonl');
 const SUGGESTION_BATCH_DELAY_MS = 750;
 const SUGGESTION_BATCH_SIZE = 40;
 const FULL_ABSTRACT_TIMEOUT_MS = 7000;
@@ -322,6 +325,12 @@ function saveSuggestionState() {
   }
 }
 
+function appendSuggestionEventLog(records) {
+  const serialized = serializeSuggestionEventRecords(records);
+  if (!serialized) return;
+  fs.appendFileSync(SUGGESTION_EVENTS_PATH, serialized, 'utf8');
+}
+
 function loadSuggestionState() {
   try {
     if (fs.existsSync(SUGGESTIONS_PATH)) {
@@ -370,23 +379,35 @@ function scheduleSuggestionBatch() {
 }
 
 function enqueueSuggestionEvents(events = []) {
-  let queued = 0;
+  const accepted = [];
   events.forEach(event => {
     const articleId = String(event?.articleId || '').trim();
     const type = getEventType(event?.type);
     if (!articleId || !getEventConfig(type)) return;
 
-    suggestionQueue.push({
+    const queueItem = {
       articleId,
       type,
       eventId: String(event?.eventId || '').slice(0, 160),
       occurredAt: String(event?.occurredAt || new Date().toISOString()).slice(0, 40)
+    };
+    const article = db.articles.find(item => item.id === articleId);
+    accepted.push({
+      queueItem,
+      record: createSuggestionEventRecord(queueItem, article, {
+        fullAbstract: article ? getCachedFullAbstract(article.id) : null
+      })
     });
-    queued++;
   });
 
-  if (queued > 0) scheduleSuggestionBatch();
-  return queued;
+  if (accepted.length === 0) return 0;
+
+  // Persist before queueing so a successful HTTP response never acknowledges an
+  // event that was lost before the background trainer saw it.
+  appendSuggestionEventLog(accepted.map(item => item.record));
+  accepted.forEach(item => suggestionQueue.push(item.queueItem));
+  scheduleSuggestionBatch();
+  return accepted.length;
 }
 
 function processSuggestionQueue() {
@@ -1448,16 +1469,22 @@ app.get('/api/articles/:id/abstract', async (req, res) => {
   });
 });
 
-// 8. Queue active article interactions. Model updates are deliberately batched
-// on the server and persisted to suggestions.json outside the request path.
+// 8. Capture article interactions. Raw records are appended synchronously so a
+// successful response cannot acknowledge an event that was never persisted;
+// model updates remain batched and are persisted to suggestions.json later.
 app.post('/api/suggestions/events', (req, res) => {
   const submitted = Array.isArray(req.body) ? req.body : req.body?.events;
   if (!Array.isArray(submitted)) {
     return res.status(400).json({ error: 'events must be an array' });
   }
 
-  const queued = enqueueSuggestionEvents(submitted.slice(0, 100));
-  res.json({ status: 'queued', queued });
+  try {
+    const queued = enqueueSuggestionEvents(submitted.slice(0, 100));
+    res.json({ status: 'queued', queued });
+  } catch (err) {
+    console.error('Failed to persist suggestion event log:', err);
+    res.status(503).json({ error: 'Could not persist suggestion interactions locally' });
+  }
 });
 
 // 9. POST mark article read/unread
@@ -1469,8 +1496,29 @@ app.post('/api/articles/:id/read', (req, res) => {
     return res.status(404).json({ error: 'Article not found' });
   }
 
-  article.read = read;
-  if (read) {
+  const nextRead = Boolean(read);
+  const changed = Boolean(article.read) !== nextRead;
+  if (changed) {
+    const historyRecord = createSuggestionEventRecord(
+      {
+        articleId: article.id,
+        type: nextRead ? 'read' : 'unread',
+        eventId: `${nextRead ? 'read' : 'unread'}:${crypto.randomUUID()}`,
+        occurredAt: new Date().toISOString()
+      },
+      article,
+      { metadata: { read: nextRead, source: 'article' } }
+    );
+    try {
+      appendSuggestionEventLog([historyRecord]);
+    } catch (err) {
+      console.error('Failed to persist read history event:', err);
+      return res.status(503).json({ error: 'Could not persist article interaction locally' });
+    }
+  }
+
+  article.read = nextRead;
+  if (nextRead) {
     addArticleToReadHistory(article.doi, article.link);
   } else {
     removeArticleFromReadHistory(article.doi, article.link);
@@ -1482,7 +1530,7 @@ app.post('/api/articles/:id/read', (req, res) => {
 // 10. POST mark all articles as read (scoped to feed or category)
 app.post('/api/articles/read-all', (req, res) => {
   const { feedId, category } = req.body;
-  let count = 0;
+  const articlesToMarkRead = [];
 
   db.articles.forEach(article => {
     let match = false;
@@ -1497,11 +1545,34 @@ app.post('/api/articles/read-all', (req, res) => {
       match = true; // All articles
     }
 
-    if (match && !article.read) {
-      article.read = true;
-      addArticleToReadHistory(article.doi, article.link);
-      count++;
+    if (match && !article.read) articlesToMarkRead.push(article);
+  });
+
+  if (articlesToMarkRead.length > 0) {
+    const occurredAt = new Date().toISOString();
+    const historyRecords = articlesToMarkRead.map(article => createSuggestionEventRecord(
+      {
+        articleId: article.id,
+        type: 'read',
+        eventId: `read:${crypto.randomUUID()}`,
+        occurredAt
+      },
+      article,
+      { metadata: { read: true, source: 'read-all' } }
+    ));
+    try {
+      appendSuggestionEventLog(historyRecords);
+    } catch (err) {
+      console.error('Failed to persist read-all history events:', err);
+      return res.status(503).json({ error: 'Could not persist article interactions locally' });
     }
+  }
+
+  let count = 0;
+  articlesToMarkRead.forEach(article => {
+    article.read = true;
+    addArticleToReadHistory(article.doi, article.link);
+    count++;
   });
 
   if (count > 0) {
