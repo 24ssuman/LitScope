@@ -7,6 +7,11 @@ const Parser = require('rss-parser');
 const { createCrossrefClient } = require('./crossref-client');
 const { resolveArticleReadState } = require('./article-read-state');
 const {
+  createArticleCheckpoint,
+  getFeedCheckpoint,
+  selectNewArticles
+} = require('./refresh-checkpoint');
+const {
   createSuggestionState,
   extractAbstractFromHtml,
   getEnrichmentText,
@@ -624,6 +629,7 @@ function repairConfiguredFeedUrls() {
     if (updatedUrl && feed.url !== updatedUrl) {
       feed.url = updatedUrl;
       feed.lastFetched = null;
+      feed.lastFetchedArticle = null;
       repairedCount++;
     }
   });
@@ -1107,6 +1113,25 @@ function mergeArticle(article) {
   return true;
 }
 
+function mergeFetchedArticles(feed, sourceArticles) {
+  const articles = Array.isArray(sourceArticles) ? sourceArticles : [];
+  const checkpoint = getFeedCheckpoint(feed, db.articles);
+  const existingArticles = db.articles.filter(article => article.feedId === feed.id);
+  const selection = selectNewArticles(articles, checkpoint, existingArticles);
+  let newCount = 0;
+
+  selection.articles.forEach(article => {
+    if (mergeArticle(article)) newCount++;
+  });
+
+  // Keep the source's first (newest) article as the durable per-journal
+  // boundary. `lastFetched` remains the timestamp for the refresh attempt.
+  const nextCheckpoint = createArticleCheckpoint(articles[0]);
+  if (nextCheckpoint) feed.lastFetchedArticle = nextCheckpoint;
+
+  return { ...selection, newCount };
+}
+
 // Fetch a single feed and merge articles
 async function fetchAndMergeFeed(feed, progressCallback) {
   if (progressCallback) progressCallback('fetching', feed);
@@ -1115,10 +1140,7 @@ async function fetchAndMergeFeed(feed, progressCallback) {
   if (feed.url.startsWith('chemrxiv://')) {
     try {
       const articles = await fetchChemRxiv(feed);
-      let newCount = 0;
-      articles.forEach(art => {
-        if (mergeArticle(art)) newCount++;
-      });
+      const { newCount } = mergeFetchedArticles(feed, articles);
       feed.lastFetched = new Date().toISOString();
       feed.status = 'ok';
       feed.errorMessage = null;
@@ -1130,10 +1152,7 @@ async function fetchAndMergeFeed(feed, progressCallback) {
       const now = new Date();
       try {
         const fallbackArticles = await fetchChemRxivFromCrossref(feed, 20);
-        let newCount = 0;
-        fallbackArticles.forEach(art => {
-          if (mergeArticle(art)) newCount++;
-        });
+        const { newCount } = mergeFetchedArticles(feed, fallbackArticles);
         feed.lastFetched = now.toISOString();
         feed.status = 'fallback';
         const sourceMessage = err.isExpectedAccessDenial
@@ -1162,10 +1181,7 @@ async function fetchAndMergeFeed(feed, progressCallback) {
     try {
       const crossrefArticles = await fetchJournalFromCrossref(feed, 20);
       if (crossrefArticles.length > 0) {
-        let newCount = 0;
-        crossrefArticles.forEach(art => {
-          if (mergeArticle(art)) newCount++;
-        });
+        const { newCount } = mergeFetchedArticles(feed, crossrefArticles);
         feed.lastFetched = new Date().toISOString();
         feed.status = 'ok';
         feed.errorMessage = null;
@@ -1182,7 +1198,6 @@ async function fetchAndMergeFeed(feed, progressCallback) {
     const feedData = await parser.parseURL(feed.url);
     const now = new Date();
     
-    let newCount = 0;
     const processedArticles = await Promise.all((feedData.items || [])
       .filter(item => !isCoverOrIndex(item.title || ''))
       .map(async item => {
@@ -1224,10 +1239,8 @@ async function fetchAndMergeFeed(feed, progressCallback) {
       };
     }));
 
-    // Merge articles: keep existing ones, append new ones
-    processedArticles.forEach(art => {
-      if (mergeArticle(art)) newCount++;
-    });
+    // Merge only entries newer than this journal's durable article checkpoint.
+    const { newCount } = mergeFetchedArticles(feed, processedArticles);
 
     feed.lastFetched = now.toISOString();
     feed.status = 'ok';
@@ -1335,6 +1348,7 @@ app.put('/api/feeds/:id', (req, res) => {
     }
     feed.url = updatedUrl;
     feed.lastFetched = null; // force refetch
+    feed.lastFetchedArticle = null;
   }
 
   saveDB();

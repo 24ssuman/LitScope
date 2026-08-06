@@ -21,6 +21,8 @@ The default server URL is `http://localhost:3000`.
 
 Crossref requests are serialized and automatically retried after temporary rate limits. Optional environment variables are `CROSSREF_MAILTO` for a contact address, `CROSSREF_MIN_INTERVAL_MS` for request spacing (default `350`), and `CROSSREF_MAX_RETRIES` for retry count (default `2`). The server also rejects a second refresh while one is already running.
 
+The toolbar **Refresh** button always refreshes every configured journal, regardless of the active sidebar tab. Each journal keeps a `lastFetchedArticle` checkpoint; after the source is read, only entries before that newest-first checkpoint are merged. If a source has rotated past the checkpoint, LitScope recovers only article identities that are not already saved for that journal.
+
 ## Research workflow
 
 - Use **All articles** to filter by journal, author, and date, then order results by date or journal.

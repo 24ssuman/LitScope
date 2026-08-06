@@ -110,11 +110,11 @@ const API = {
     });
     return res.json();
   },
-  async triggerRefresh(feedId = null) {
+  async triggerRefresh() {
     const res = await fetch('/api/refresh', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ feedId })
+      body: JSON.stringify({})
     });
     return res.json();
   },
@@ -1442,9 +1442,8 @@ function bindEvents() {
   // Refresh feed trigger
   DOM.refreshBtn.addEventListener('click', async () => {
     if (state.isRefreshing) return;
-    const feedParam = (state.activeFeedId && !['today', 'saved', 'all'].includes(state.activeFeedId)) ? state.activeFeedId : null;
     try {
-      const result = await API.triggerRefresh(feedParam);
+      const result = await API.triggerRefresh();
       if (result.status === 'already-running') {
         showToast('A feed refresh is already running.');
       }
