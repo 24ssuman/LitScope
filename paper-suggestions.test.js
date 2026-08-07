@@ -27,8 +27,12 @@ const article = {
   pubDate: '2026-07-24T08:00:00.000Z'
 };
 
-test('passive read/seen state is not a model event', () => {
-  assert.equal(getEventConfig('read'), null);
+test('explicit read/dismiss actions are negative model events while passive state is neutral', () => {
+  const readConfig = getEventConfig('read');
+  assert.ok(readConfig);
+  assert.ok(readConfig.label < 0.35);
+  assert.ok(readConfig.profileSignal < 0);
+  assert.equal(getEventConfig('unread'), null);
   assert.equal(getEventConfig('impression'), null);
   assert.equal(getEventConfig('like'), null);
   assert.equal(getEventConfig('not-for-me'), null);
@@ -68,8 +72,18 @@ test('suggestion event records preserve replayable paper metadata without mutabl
     article,
     { metadata: { read: true, source: 'article' } }
   );
-  assert.equal(readRecord.trainingEligible, false);
+  assert.equal(readRecord.trainingEligible, true);
   assert.deepEqual(readRecord.metadata, { read: true, source: 'article' });
+
+  const automaticReadRecord = createSuggestionEventRecord(
+    { articleId: article.id, type: 'read', eventId: 'session-1:3' },
+    article,
+    {
+      metadata: { read: true, source: 'publisher' },
+      trainingEligible: false
+    }
+  );
+  assert.equal(automaticReadRecord.trainingEligible, false);
 });
 
 test('title, authors, and abstract all contribute to hashed features', () => {
@@ -95,6 +109,45 @@ test('the cold-start neural ranker learns an active positive signal', () => {
   assert.ok(after > before, `expected ${after} to exceed ${before}`);
   assert.equal(state.stats.trainingExamples, 8);
   assert.equal(state.stats.positiveExamples, 8);
+});
+
+test('the ranker learns a negative signal from an explicit read/dismiss action', () => {
+  const state = createSuggestionState({ now: '2026-07-24T00:00:00.000Z' });
+  const before = predictScore(state, article);
+  for (let i = 0; i < 8; i++) {
+    trainOnArticle(state, article, 'read', { now: '2026-07-24T00:00:00.000Z' });
+  }
+  const after = predictScore(state, article);
+
+  assert.ok(after < before, `expected ${after} to be below ${before}`);
+  assert.equal(state.stats.trainingExamples, 8);
+  assert.equal(state.stats.positiveExamples, 0);
+  assert.equal(state.stats.negativeExamples, 8);
+  assert.ok(state.profile.negativeWeight > 0);
+});
+
+test('negative paper text generalizes to similar articles without affecting unrelated text equally', () => {
+  const state = createSuggestionState();
+  const similar = {
+    ...article,
+    id: 'article-2',
+    title: 'Cooperative neural potentials for liquid interfaces',
+    content: 'A transferable model for molecular simulation and free-energy prediction.'
+  };
+  const unrelated = {
+    ...article,
+    id: 'article-3',
+    title: 'A new catalyst for carbon dioxide conversion',
+    author: 'C. Chemist',
+    content: 'We report a catalytic reaction mechanism for selective organic synthesis.',
+    feedName: 'Organic Letters',
+    feedId: 'ol'
+  };
+
+  for (let i = 0; i < 6; i++) trainOnArticle(state, article, 'read');
+
+  assert.ok(predictProfileScore(state, similar) < predictProfileScore(state, unrelated));
+  assert.ok(predictInterestScore(state, similar) < predictInterestScore(state, unrelated));
 });
 
 test('all active article interactions train the model without explicit feedback controls', () => {
@@ -158,7 +211,7 @@ test('malformed persisted state is normalized without losing the model contract'
     stats: { trainingExamples: 3 },
     model: { inputSize: 1 }
   });
-  assert.equal(normalized.version, 2);
+  assert.equal(normalized.version, 3);
   assert.equal(normalized.stats.trainingExamples, 3);
   assert.equal(normalized.model.inputSize, 256);
   assert.equal(normalized.model.hiddenSize, 12);

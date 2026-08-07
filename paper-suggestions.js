@@ -3,7 +3,7 @@
 // A small, dependency-free online neural ranker. The model intentionally lives
 // outside db.json so personal article/read/star state remains compatible with
 // existing LitScope installations.
-const MODEL_VERSION = 2;
+const MODEL_VERSION = 3;
 const SUGGESTION_EVENT_SCHEMA_VERSION = 1;
 const INPUT_SIZE = 256;
 const HIDDEN_SIZE = 12;
@@ -16,7 +16,11 @@ const EVENT_TYPES = Object.freeze({
   external: { label: 0.9, weight: 1.35, profileSignal: 1.25 },
   star: { label: 1, weight: 1.8, profileSignal: 1.8 },
   abstract: { label: 0.78, weight: 0.65, profileSignal: 0.65 },
-  unstar: { label: 0.35, weight: 0.45, profileSignal: -0.6 }
+  unstar: { label: 0.35, weight: 0.45, profileSignal: -0.6 },
+  // An explicit read/dismiss action means the user did not want to spend more
+  // attention on the paper. Automatic state updates from opening the drawer or
+  // visiting the publisher are recorded separately and do not use this signal.
+  read: { label: 0.08, weight: 1.15, profileSignal: -1.35 }
 });
 
 function clamp(value, min, max) {
@@ -183,16 +187,24 @@ function createSuggestionArticleSnapshot(article, fullAbstract = null) {
 function createSuggestionEventRecord(
   event,
   article = null,
-  { fullAbstract = null, metadata = null, recordedAt = new Date().toISOString() } = {}
+  {
+    fullAbstract = null,
+    metadata = null,
+    recordedAt = new Date().toISOString(),
+    trainingEligible = null
+  } = {}
 ) {
   const occurredAt = String(event?.occurredAt || recordedAt).slice(0, 40);
   const type = getEventType(event?.type);
+  const eventConfig = getEventConfig(type);
   return {
     schemaVersion: SUGGESTION_EVENT_SCHEMA_VERSION,
     eventId: String(event?.eventId || '').slice(0, 160) || null,
     articleId: String(event?.articleId || article?.id || '').trim() || null,
     type,
-    trainingEligible: Boolean(getEventConfig(type)),
+    trainingEligible: trainingEligible === null
+      ? Boolean(eventConfig)
+      : Boolean(trainingEligible),
     occurredAt,
     recordedAt,
     metadata: metadata && typeof metadata === 'object' ? metadata : null,

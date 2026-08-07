@@ -41,6 +41,7 @@ const SUGGESTION_EVENTS_PATH = path.join(__dirname, 'suggestion_events.jsonl');
 const SUGGESTION_BATCH_DELAY_MS = 750;
 const SUGGESTION_BATCH_SIZE = 40;
 const FULL_ABSTRACT_TIMEOUT_MS = 7000;
+const AUTOMATIC_READ_SOURCES = new Set(['open', 'publisher']);
 
 app.use(cors());
 app.use(express.json());
@@ -279,6 +280,19 @@ function isArticleInReadHistory(doi, link) {
   return false;
 }
 
+function normalizeReadSource(source) {
+  const normalized = String(source || 'manual')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]+/g, '_')
+    .slice(0, 40);
+  return normalized || 'manual';
+}
+
+function shouldTrainExplicitReadSignal(source) {
+  return !AUTOMATIC_READ_SOURCES.has(normalizeReadSource(source));
+}
+
 // Save database to file
 const CSV_PATH = path.join(__dirname, 'articles_archive.csv');
 
@@ -394,13 +408,15 @@ function enqueueSuggestionEvents(events = []) {
       articleId,
       type,
       eventId: String(event?.eventId || '').slice(0, 160),
-      occurredAt: String(event?.occurredAt || new Date().toISOString()).slice(0, 40)
+      occurredAt: String(event?.occurredAt || new Date().toISOString()).slice(0, 40),
+      metadata: event?.metadata && typeof event.metadata === 'object' ? event.metadata : null
     };
     const article = db.articles.find(item => item.id === articleId);
     accepted.push({
       queueItem,
       record: createSuggestionEventRecord(queueItem, article, {
-        fullAbstract: article ? getCachedFullAbstract(article.id) : null
+        fullAbstract: article ? getCachedFullAbstract(article.id) : null,
+        metadata: queueItem.metadata
       })
     });
   });
@@ -1513,18 +1529,24 @@ app.post('/api/articles/:id/read', (req, res) => {
   const nextRead = Boolean(read);
   const changed = Boolean(article.read) !== nextRead;
   if (changed) {
-    const historyRecord = createSuggestionEventRecord(
-      {
-        articleId: article.id,
-        type: nextRead ? 'read' : 'unread',
-        eventId: `${nextRead ? 'read' : 'unread'}:${crypto.randomUUID()}`,
-        occurredAt: new Date().toISOString()
-      },
-      article,
-      { metadata: { read: nextRead, source: 'article' } }
-    );
+    const source = normalizeReadSource(req.body?.source);
+    const event = {
+      articleId: article.id,
+      type: nextRead ? 'read' : 'unread',
+      eventId: `${nextRead ? 'read' : 'unread'}:${crypto.randomUUID()}`,
+      occurredAt: new Date().toISOString(),
+      metadata: { read: nextRead, source }
+    };
     try {
-      appendSuggestionEventLog([historyRecord]);
+      if (nextRead && shouldTrainExplicitReadSignal(source)) {
+        enqueueSuggestionEvents([event]);
+      } else {
+        const historyRecord = createSuggestionEventRecord(event, article, {
+          metadata: event.metadata,
+          trainingEligible: false
+        });
+        appendSuggestionEventLog([historyRecord]);
+      }
     } catch (err) {
       console.error('Failed to persist read history event:', err);
       return res.status(503).json({ error: 'Could not persist article interaction locally' });
@@ -1564,18 +1586,15 @@ app.post('/api/articles/read-all', (req, res) => {
 
   if (articlesToMarkRead.length > 0) {
     const occurredAt = new Date().toISOString();
-    const historyRecords = articlesToMarkRead.map(article => createSuggestionEventRecord(
-      {
-        articleId: article.id,
-        type: 'read',
-        eventId: `read:${crypto.randomUUID()}`,
-        occurredAt
-      },
-      article,
-      { metadata: { read: true, source: 'read-all' } }
-    ));
+    const readEvents = articlesToMarkRead.map(article => ({
+      articleId: article.id,
+      type: 'read',
+      eventId: `read:${crypto.randomUUID()}`,
+      occurredAt,
+      metadata: { read: true, source: 'read-all' }
+    }));
     try {
-      appendSuggestionEventLog(historyRecords);
+      enqueueSuggestionEvents(readEvents);
     } catch (err) {
       console.error('Failed to persist read-all history events:', err);
       return res.status(503).json({ error: 'Could not persist article interactions locally' });

@@ -11,6 +11,8 @@ Static frontend served by `server.js`.
 
 The toolbar Refresh action always requests all configured journals. The server applies each journal's persisted `lastFetchedArticle` checkpoint so only newly available source entries are added.
 
+Opening a publisher or DOI link records the publisher visit as an `external` suggestion signal and marks the article read through the existing read-history API. Explicit read/dismiss actions use the separate negative `read` learning signal; automatic read state from opening the drawer or visiting the publisher remains neutral.
+
 ## Adding a journal
 
 Use the `+` button beside the LitScope logo, then enter a journal name, its HTTP(S) RSS feed URL, and a category. The new feed is fetched immediately and is stored with the rest of the local feed configuration. The server returns the created feed ID, so journal names with spaces or punctuation continue to open correctly after adding them.

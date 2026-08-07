@@ -86,11 +86,12 @@ const API = {
     const res = await fetch(`/api/feeds/${id}`, { method: 'DELETE' });
     return res.json();
   },
-  async markRead(id, read) {
+  async markRead(id, read, source = 'manual') {
     const res = await fetch(`/api/articles/${id}/read`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ read })
+      body: JSON.stringify({ read, source }),
+      keepalive: true
     });
     return res.json();
   },
@@ -335,6 +336,30 @@ function queueSuggestionEvent(article, type, { immediate = false } = {}) {
       state.suggestionFlushTimer = null;
       void flushSuggestionEvents();
     }, 1000);
+  }
+}
+
+async function markPublisherVisitAsRead(article) {
+  if (!article?.id || article.read) return;
+
+  article.read = true;
+  const itemEl = document.querySelector(`.article-item[data-id="${article.id}"]`);
+  if (itemEl) {
+    itemEl.classList.add('read');
+    if (state.showUnreadOnly && state.activeFeedId !== 'suggested') {
+      itemEl.style.opacity = '0.3';
+      setTimeout(() => {
+        if (state.showUnreadOnly && article.read) itemEl.remove();
+      }, 300);
+    }
+  }
+
+  try {
+    await API.markRead(article.id, true, 'publisher');
+    await refreshSidebar();
+    updateBadgeCounts(await API.getStatus());
+  } catch (err) {
+    console.warn('Failed to mark publisher visit as read:', err.message);
   }
 }
 
@@ -784,8 +809,8 @@ function appendSuggestionIntro() {
   const meta = state.suggestionMeta || {};
   const examples = Number(meta.trainingExamples || 0);
   const description = meta.coldStart
-    ? 'This list is starting cold. Open, visit, or star papers to teach the ranker what matters to you.'
-    : 'The ranker learns from active interactions across every journal while passive seen/read state stays neutral.';
+    ? 'This list is starting cold. Open, visit, or star papers; explicitly marking a paper read also teaches the ranker what to avoid.'
+    : 'The ranker learns positive and negative paper-text signals across every journal. Publisher visits mark papers read, but only explicit read/dismiss actions count as negative feedback.';
   const intro = document.createElement('div');
   intro.className = 'suggestion-intro';
   intro.innerHTML = `
@@ -952,7 +977,10 @@ function renderArticles() {
       // Action Handlers
       const externalLink = itemEl.querySelector('.link-external');
       if (externalLink) {
-        externalLink.addEventListener('click', () => queueSuggestionEvent(article, 'external'));
+        externalLink.addEventListener('click', () => {
+          queueSuggestionEvent(article, 'external');
+          void markPublisherVisitAsRead(article);
+        });
       }
 
       // Toggle star/bookmark
@@ -984,7 +1012,7 @@ function renderArticles() {
         // Optimistic UI updates
         itemEl.classList.toggle('read', nextRead);
         
-        await API.markRead(article.id, nextRead);
+        await API.markRead(article.id, nextRead, 'manual');
         
         if (state.showUnreadOnly && nextRead) {
           // Fade and remove if unread only is enabled
@@ -1225,7 +1253,7 @@ async function selectArticle(articleId) {
         }, 100);
       }
     }
-    await API.markRead(articleId, true);
+    await API.markRead(articleId, true, 'open');
     await refreshSidebar();
     await updateBadgeCounts(await API.getStatus());
   }
@@ -1457,7 +1485,17 @@ function bindEvents() {
   DOM.drawerCloseBtn.addEventListener('click', closeDrawer);
   DOM.drawerExternalLink.addEventListener('click', () => {
     const article = state.articles.find(item => item.id === state.selectedArticleId);
-    if (article) queueSuggestionEvent(article, 'external');
+    if (article) {
+      queueSuggestionEvent(article, 'external');
+      void markPublisherVisitAsRead(article);
+    }
+  });
+  DOM.drawerDoiLink.addEventListener('click', () => {
+    const article = state.articles.find(item => item.id === state.selectedArticleId);
+    if (article) {
+      queueSuggestionEvent(article, 'external');
+      void markPublisherVisitAsRead(article);
+    }
   });
   DOM.drawerCopyCitationBtn.addEventListener('click', () => {
     const article = state.articles.find(item => item.id === state.selectedArticleId);
@@ -1511,7 +1549,7 @@ function bindEvents() {
       itemEl.classList.toggle('read', nextRead);
     }
     
-    await API.markRead(article.id, nextRead);
+    await API.markRead(article.id, nextRead, 'manual');
     await refreshSidebar();
     await updateBadgeCounts(await API.getStatus());
   });
@@ -1695,7 +1733,7 @@ async function handleKeyboardShortcuts(e) {
           DOM.drawerReadBtn.innerHTML = nextRead ? '<i data-lucide="mail-open"></i>' : '<i data-lucide="check"></i>';
           lucide.createIcons();
           
-          await API.markRead(article.id, nextRead);
+          await API.markRead(article.id, nextRead, 'manual');
           await refreshSidebar();
           await updateBadgeCounts(await API.getStatus());
         }
@@ -1746,6 +1784,7 @@ async function handleKeyboardShortcuts(e) {
         const article = state.articles.find(a => a.id === state.selectedArticleId);
         if (article && article.link) {
           queueSuggestionEvent(article, 'external');
+          void markPublisherVisitAsRead(article);
           window.open(article.link, '_blank');
         }
       }
