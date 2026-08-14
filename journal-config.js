@@ -263,15 +263,23 @@ const DEFAULT_JOURNALS = [
     crossref: { issn: '1095-9203', rows: 20 }
   },
 
-  // Category: arXiv preprints. This is a separate source from ChemRxiv and
-  // queries the official arXiv Atom API for both requested subject categories.
+  // Category: arXiv preprints. These are separate sources from ChemRxiv and
+  // query the official arXiv Atom API independently by subject category.
   {
-    id: 'arxiv-stat-mech-chem-phys',
-    name: 'arXiv: Statistical Mechanics, Chemical Physics',
-    url: 'https://export.arxiv.org/api/query?search_query=cat%3Acond-mat.stat-mech%20OR%20cat%3Aphysics.chem-ph&start=0&max_results=20&sortBy=submittedDate&sortOrder=descending',
+    id: 'arxiv-stat-mech',
+    name: 'arXiv:stat-mech',
+    url: 'https://export.arxiv.org/api/query?search_query=cat%3Acond-mat.stat-mech&start=0&max_results=20&sortBy=submittedDate&sortOrder=descending',
     category: 'Comp Chem',
     source: 'arxiv',
-    homepage: 'https://arxiv.org/search/?query=cat%3Acond-mat.stat-mech+OR+cat%3Aphysics.chem-ph&searchtype=all'
+    homepage: 'https://arxiv.org/list/cond-mat.stat-mech'
+  },
+  {
+    id: 'arxiv-chem-ph',
+    name: 'arXiv:chem-ph',
+    url: 'https://export.arxiv.org/api/query?search_query=cat%3Aphysics.chem-ph&start=0&max_results=20&sortBy=submittedDate&sortOrder=descending',
+    category: 'Comp Chem',
+    source: 'arxiv',
+    homepage: 'https://arxiv.org/list/physics.chem-ph'
   },
 
   // Category: ChemRxiv preprints. These retain their existing non-RSS
