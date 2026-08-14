@@ -249,13 +249,13 @@
         <button class="modal-close" id="feed-modal-close-btn"><i data-lucide="x"></i></button>
       </div>
       <form id="feed-form" class="modal-form">
-        <p class="modal-description">Add any journal that publishes an RSS feed. LitScope will fetch its articles immediately.</p>
+        <p class="modal-description">Add any journal with an RSS feed or an arXiv API query. LitScope will fetch its articles immediately.</p>
         <div class="form-group">
           <label for="feed-name-input">Journal Name</label>
           <input type="text" id="feed-name-input" placeholder="e.g. Nature Materials" required>
         </div>
         <div class="form-group">
-          <label for="feed-url-input">RSS Feed URL</label>
+          <label for="feed-url-input">RSS or arXiv API URL</label>
           <input type="url" id="feed-url-input" placeholder="e.g. https://www.nature.com/nmat.rss" required>
         </div>
         <div class="form-group">
@@ -292,7 +292,7 @@
           <input type="text" id="edit-feed-category" list="categories-list" required>
         </div>
         <div class="form-group">
-          <label for="edit-feed-url">RSS Feed URL</label>
+          <label for="edit-feed-url">RSS or arXiv API URL</label>
           <input type="url" id="edit-feed-url" required>
         </div>
         <div class="form-actions space-between">

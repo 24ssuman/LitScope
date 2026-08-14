@@ -1,6 +1,6 @@
 # LitScope
 
-Local Express app for tracking recent chemistry and computational chemistry articles from RSS feeds and ChemRxiv-style preprint sources. It supports saved reading queues, live refresh progress, journal management, library filtering, DOI search, and one-click citation copying.
+Local Express app for tracking recent chemistry and computational chemistry articles from RSS feeds, arXiv category queries, and ChemRxiv-style preprint sources. It supports saved reading queues, live refresh progress, journal management, library filtering, DOI search, and one-click citation copying.
 
 ## Structure
 
@@ -27,7 +27,7 @@ Crossref requests are serialized and automatically retried after temporary rate 
 
 ## Add another journal
 
-Any journal with an HTTP(S) RSS feed can be added from the app with the `+` button. Enter its display name, RSS URL, and category; LitScope validates the URL, saves the feed, downloads its articles, and keeps it available across restarts in the local database.
+Any journal with an HTTP(S) RSS feed or arXiv API query can be added from the app with the `+` button. Enter its display name, source URL, and category; LitScope validates the URL, saves the feed, downloads its articles, and keeps it available across restarts in the local database.
 
 To ship another journal as part of the default catalog, add one entry to [`journal-config.js`](./journal-config.js):
 
@@ -40,6 +40,6 @@ To ship another journal as part of the default catalog, add one entry to [`journ
 }
 ```
 
-The `homepage` field is optional and supplies a safe fallback link when an article has no DOI. The optional `crossref: { issn, rows }` field enables the same Crossref fallback used by the current catalog. ChemRxiv entries remain the only special non-RSS source and keep their existing API/fallback path. A new default entry appears on a fresh database or after using **Reset database**; existing local `db.json` data is not overwritten.
+The `homepage` field is optional and supplies a safe fallback link when an article has no DOI. The optional `crossref: { issn, rows }` field enables the same Crossref fallback used by the current catalog. The shipped `arXiv: Statistical Mechanics, Chemical Physics` entry uses the official Atom API query for `cond-mat.stat-mech` OR `physics.chem-ph`; it is a separate source path from the ChemRxiv API/Crossref fallback. A new default entry appears on a fresh database or after using **Reset database**; existing local `db.json` data is not overwritten.
 
 Run `npm test` after changing the catalog. The registry validation tests catch duplicate IDs, malformed feed URLs, invalid Crossref metadata, and accidental removal of the current feed shape.
