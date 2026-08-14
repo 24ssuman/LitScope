@@ -15,10 +15,10 @@ const {
 } = require('./journal-config');
 
 test('the registry retains the current journal catalog and feed shape', () => {
-  assert.equal(DEFAULT_JOURNALS.length, 31);
+  assert.equal(DEFAULT_JOURNALS.length, 32);
   assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'rss').length, 28);
   assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'chemrxiv').length, 2);
-  assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'arxiv').length, 1);
+  assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'arxiv').length, 2);
 
   const feeds = createDefaultFeeds();
   assert.deepEqual(feeds[0], {
@@ -37,10 +37,8 @@ test('the registry retains the current journal catalog and feed shape', () => {
 
 test('optional fallback metadata is derived from the same registry', () => {
   assert.equal(getJournalHomepages().jctc, 'https://pubs.acs.org/journal/jctcce');
-  assert.equal(
-    getJournalHomepages()['arxiv-stat-mech-chem-phys'],
-    'https://arxiv.org/search/?query=cat%3Acond-mat.stat-mech+OR+cat%3Aphysics.chem-ph&searchtype=all'
-  );
+  assert.equal(getJournalHomepages()['arxiv-stat-mech'], 'https://arxiv.org/list/cond-mat.stat-mech');
+  assert.equal(getJournalHomepages()['arxiv-chem-ph'], 'https://arxiv.org/list/physics.chem-ph');
   assert.deepEqual(getCrossrefFallbacks().jcc, { issn: '1096-987X', rows: 20 });
   assert.deepEqual(getChemRxivCategories(), {
     'chemrxiv-tcc': '605c704b6c174a001015cca0',
@@ -62,14 +60,24 @@ test('a new RSS journal needs only the core definition fields', () => {
   ]);
 });
 
-test('the arXiv source is separate from ChemRxiv and preserves the combined category query', () => {
-  const arxivJournal = DEFAULT_JOURNALS.find(journal => journal.id === 'arxiv-stat-mech-chem-phys');
+test('the arXiv source is separate from ChemRxiv and keeps subject queries independent', () => {
+  const statMech = DEFAULT_JOURNALS.find(journal => journal.id === 'arxiv-stat-mech');
+  const chemPh = DEFAULT_JOURNALS.find(journal => journal.id === 'arxiv-chem-ph');
 
-  assert.equal(inferSource(arxivJournal.url), 'arxiv');
+  assert.equal(statMech.name, 'arXiv:stat-mech');
+  assert.equal(chemPh.name, 'arXiv:chem-ph');
+  assert.equal(statMech.category, 'Comp Chem');
+  assert.equal(chemPh.category, 'Comp Chem');
+  assert.equal(inferSource(statMech.url), 'arxiv');
+  assert.equal(inferSource(chemPh.url), 'arxiv');
   assert.equal(inferSource('chemrxiv://physical-chemistry'), 'chemrxiv');
   assert.equal(inferSource('https://example.org/journal.rss'), 'rss');
-  assert.match(arxivJournal.url, /search_query=cat%3Acond-mat\.stat-mech%20OR%20cat%3Aphysics\.chem-ph/);
-  assert.equal(isSupportedFeedUrl(arxivJournal.url), true);
+  assert.match(statMech.url, /search_query=cat%3Acond-mat\.stat-mech&/);
+  assert.match(chemPh.url, /search_query=cat%3Aphysics\.chem-ph&/);
+  assert.doesNotMatch(statMech.url, /physics\.chem-ph/);
+  assert.doesNotMatch(chemPh.url, /cond-mat\.stat-mech/);
+  assert.equal(isSupportedFeedUrl(statMech.url), true);
+  assert.equal(isSupportedFeedUrl(chemPh.url), true);
 });
 
 test('registry validation catches duplicate or unsupported entries', () => {

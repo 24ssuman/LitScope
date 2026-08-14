@@ -50,6 +50,6 @@ To ship another journal as part of the default catalog, add one entry to [`journ
 }
 ```
 
-The `homepage` field is optional and supplies a safe fallback link when an article has no DOI. The optional `crossref: { issn, rows }` field enables the same Crossref fallback used by the current catalog. The shipped `arXiv: Statistical Mechanics, Chemical Physics` entry uses the official Atom API query for `cond-mat.stat-mech` OR `physics.chem-ph`; it is a separate source path from the ChemRxiv API/Crossref fallback. A new default entry appears on a fresh database or after using **Reset database**; existing local `db.json` data is not overwritten.
+The `homepage` field is optional and supplies a safe fallback link when an article has no DOI. The optional `crossref: { issn, rows }` field enables the same Crossref fallback used by the current catalog. The shipped `arXiv:stat-mech` and `arXiv:chem-ph` entries independently query the official Atom API for `cond-mat.stat-mech` and `physics.chem-ph`; both remain separate from the ChemRxiv API/Crossref fallback. New default entries appear on a fresh database or after using **Reset database**; existing local `db.json` data is not overwritten.
 
 Run `npm test` after changing the catalog. The registry validation tests catch duplicate IDs, malformed feed URLs, invalid Crossref metadata, and accidental removal of the current feed shape.
