@@ -7,12 +7,17 @@ const {
   createSuggestionEventRecord,
   createSuggestionState,
   extractAbstractFromHtml,
+  FEATURE_SCHEMA_VERSION,
   getEventConfig,
+  HIDDEN_SIZE,
+  INPUT_SIZE,
+  MODEL_VERSION,
   normalizeSuggestionState,
   predictInterestScore,
   predictProfileScore,
   predictScore,
   rankArticles,
+  replaySuggestionEventRecords,
   serializeSuggestionEventRecords,
   trainOnArticle
 } = require('./paper-suggestions');
@@ -95,7 +100,28 @@ test('title, authors, and abstract all contribute to hashed features', () => {
     content: 'A different abstract with another mechanism.'
   });
   assert.notDeepEqual(base, changed);
-  assert.equal(base.length, 256);
+  assert.equal(base.length, INPUT_SIZE);
+});
+
+test('the richer encoder includes source, category, feed identity, and structural metadata', () => {
+  const journalVector = buildFeatureVector({
+    ...article,
+    category: 'Comp Chem',
+    source: 'rss',
+    doi: '10.1002/example'
+  });
+  const preprintVector = buildFeatureVector({
+    ...article,
+    category: 'Chem',
+    source: 'arxiv',
+    feedId: 'arxiv-chem-ph',
+    doi: null,
+    author: 'A. Researcher'
+  });
+
+  assert.notDeepEqual(journalVector, preprintVector);
+  assert.equal(journalVector.length, 512);
+  assert.ok(journalVector.some(value => value !== 0));
 });
 
 test('the cold-start neural ranker learns an active positive signal', () => {
@@ -159,6 +185,21 @@ test('all active article interactions train the model without explicit feedback 
   assert.equal(state.stats.negativeExamples, 1);
 });
 
+test('bulk read-all feedback stays negative but has less influence than an individual dismissal', () => {
+  const manualState = createSuggestionState();
+  const bulkState = createSuggestionState();
+  const manual = trainOnArticle(manualState, article, 'read', {
+    metadata: { source: 'manual' }
+  });
+  const bulk = trainOnArticle(bulkState, article, 'read', {
+    metadata: { source: 'read-all', batchSize: 100 }
+  });
+
+  assert.ok(bulk.after < bulk.before);
+  assert.ok(bulk.trainingScale < manual.trainingScale);
+  assert.equal(bulkState.stats.featureNegativeExamples, 1);
+});
+
 test('the interest profile generalizes active clicks to similar article text', () => {
   const state = createSuggestionState();
   const similar = {
@@ -211,9 +252,58 @@ test('malformed persisted state is normalized without losing the model contract'
     stats: { trainingExamples: 3 },
     model: { inputSize: 1 }
   });
-  assert.equal(normalized.version, 3);
+  assert.equal(normalized.version, MODEL_VERSION);
+  assert.equal(normalized.featureSchemaVersion, FEATURE_SCHEMA_VERSION);
   assert.equal(normalized.stats.trainingExamples, 3);
-  assert.equal(normalized.model.inputSize, 256);
-  assert.equal(normalized.model.hiddenSize, 12);
-  assert.equal(normalized.profile.positiveCentroid.length, 256);
+  assert.equal(normalized.model.inputSize, INPUT_SIZE);
+  assert.equal(normalized.model.hiddenSize, HIDDEN_SIZE);
+  assert.equal(normalized.profile.positiveCentroid.length, INPUT_SIZE);
+});
+
+test('version 3 state keeps a legacy ranker and replays eligible records into version 4 features', () => {
+  const legacyModel = {
+    inputSize: 256,
+    hiddenSize: 12,
+    weights1: Array.from({ length: 12 }, () => Array.from({ length: 256 }, () => 0)),
+    bias1: Array.from({ length: 12 }, () => 0),
+    weights2: Array.from({ length: 12 }, () => 0),
+    bias2: 0
+  };
+  const legacyProfile = {
+    positiveCentroid: Array.from({ length: 256 }, () => 0),
+    negativeCentroid: Array.from({ length: 256 }, () => 0),
+    positiveWeight: 2,
+    negativeWeight: 3
+  };
+  const migrated = normalizeSuggestionState({
+    version: 3,
+    model: legacyModel,
+    profile: legacyProfile,
+    stats: {
+      eventsProcessed: 12,
+      trainingExamples: 12,
+      positiveExamples: 5,
+      negativeExamples: 7
+    }
+  });
+  const eligible = createSuggestionEventRecord(
+    { ...article, articleId: article.id, type: 'open', eventId: 'replay:1' },
+    { ...article, category: 'Comp Chem', source: 'rss' }
+  );
+  const neutral = createSuggestionEventRecord(
+    { ...article, articleId: article.id, type: 'read', eventId: 'replay:2' },
+    article,
+    { trainingEligible: false }
+  );
+  const result = replaySuggestionEventRecords(migrated, [eligible, eligible, neutral], {
+    now: '2026-08-14T17:00:00.000Z'
+  });
+
+  assert.equal(result.applied, 1);
+  assert.equal(migrated.version, 4);
+  assert.equal(migrated.migration.required, false);
+  assert.equal(migrated.stats.trainingExamples, 12);
+  assert.equal(migrated.stats.featureTrainingExamples, 1);
+  assert.equal(migrated.model.inputSize, 512);
+  assert.equal(migrated.legacyRanker.model.inputSize, 256);
 });

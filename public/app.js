@@ -790,7 +790,7 @@ async function loadArticles() {
 function getSuggestionScoreMarkup(article) {
   if (state.activeFeedId !== 'suggested' || article.suggestionScore === undefined) return '';
   const score = Math.round(Math.max(0, Math.min(1, Number(article.suggestionScore) || 0)) * 100);
-  return `<span class="suggestion-score" title="Predicted interest from article interactions">${score}% match</span>`;
+  return `<span class="suggestion-score" title="Predicted interest from paper features and interactions">${score}% match</span>`;
 }
 
 function updateStreamEmptyState(isSuggestedView) {
@@ -810,7 +810,7 @@ function appendSuggestionIntro() {
   const examples = Number(meta.trainingExamples || 0);
   const description = meta.coldStart
     ? 'This list is starting cold. Open, visit, or star papers; explicitly marking a paper read also teaches the ranker what to avoid.'
-    : 'The ranker learns positive and negative paper-text signals across every journal. Publisher visits mark papers read, but only explicit read/dismiss actions count as negative feedback.';
+    : 'The ranker learns paper content, authors, source metadata, and positive or negative interaction signals across every journal. Publisher visits mark papers read, but only explicit read/dismiss actions count as negative feedback.';
   const intro = document.createElement('div');
   intro.className = 'suggestion-intro';
   intro.innerHTML = `

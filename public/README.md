@@ -13,6 +13,8 @@ The toolbar Refresh action always requests all configured journals. The server a
 
 Opening a publisher or DOI link records the publisher visit as an `external` suggestion signal and marks the article read through the existing read-history API. Explicit read/dismiss actions use the separate negative `read` learning signal; automatic read state from opening the drawer or visiting the publisher remains neutral.
 
+The Suggested view is backed by a local versioned neural ranker. Its richer feature schema includes paper text, author identity, feed/category/source metadata, and document-shape signals. Bulk **Mark all read** feedback is batch-scaled so it remains negative evidence without overwhelming stronger individual actions.
+
 ## Adding a journal
 
 Use the `+` button beside the LitScope logo, then enter a journal name, its HTTP(S) RSS or arXiv API query URL, and a category. The new feed is fetched immediately and is stored with the rest of the local feed configuration. The server returns the created feed ID, so journal names with spaces or punctuation continue to open correctly after adding them.

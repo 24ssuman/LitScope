@@ -14,12 +14,14 @@ const {
 const {
   createSuggestionState,
   extractAbstractFromHtml,
+  FEATURE_SCHEMA_VERSION,
   getEnrichmentText,
   getEventConfig,
   getEventType,
   MODEL_VERSION,
   normalizeSuggestionState,
   rankArticles,
+  replaySuggestionEventRecords,
   createSuggestionEventRecord,
   serializeSuggestionEventRecords,
   trainOnArticle
@@ -351,11 +353,43 @@ function appendSuggestionEventLog(records) {
   fs.appendFileSync(SUGGESTION_EVENTS_PATH, serialized, 'utf8');
 }
 
+function enrichSuggestionArticle(article) {
+  if (!article || typeof article !== 'object') return article;
+  const feed = db.feeds.find(item => item.id === article.feedId);
+  return {
+    ...article,
+    category: article.category || feed?.category || null,
+    source: article.source || feed?.source || (feed?.url ? inferSource(feed.url) : null)
+  };
+}
+
+function readSuggestionEventLog() {
+  if (!fs.existsSync(SUGGESTION_EVENTS_PATH)) return [];
+  return fs.readFileSync(SUGGESTION_EVENTS_PATH, 'utf8')
+    .split('\n')
+    .filter(line => line.trim())
+    .map(line => {
+      try {
+        return JSON.parse(line);
+      } catch (_) {
+        return null;
+      }
+    })
+    .filter(Boolean);
+}
+
 function loadSuggestionState() {
   try {
     if (fs.existsSync(SUGGESTIONS_PATH)) {
       const raw = fs.readFileSync(SUGGESTIONS_PATH, 'utf8');
       suggestionState = normalizeSuggestionState(JSON.parse(raw));
+      if (suggestionState.migration?.required) {
+        const result = replaySuggestionEventRecords(suggestionState, readSuggestionEventLog(), {
+          enrichArticle: enrichSuggestionArticle
+        });
+        console.log(`Upgraded suggestion model with ${result.applied} replayed interaction(s).`);
+        saveSuggestionState();
+      }
     } else {
       suggestionState = createSuggestionState();
       saveSuggestionState();
@@ -372,19 +406,24 @@ function getSuggestionCandidates() {
   const unread = eligible.filter(article => !article.read);
   const candidates = unread.length > 0 ? unread : eligible;
 
-  return candidates.sort((a, b) => (
-    new Date(b.pubDate || 0) - new Date(a.pubDate || 0)
-  ));
+  return candidates
+    .map(enrichSuggestionArticle)
+    .sort((a, b) => (
+      new Date(b.pubDate || 0) - new Date(a.pubDate || 0)
+    ));
 }
 
 function getSuggestionSummary() {
   const stats = suggestionState.stats || {};
   return {
     modelVersion: MODEL_VERSION,
+    featureSchemaVersion: FEATURE_SCHEMA_VERSION,
     eventsProcessed: stats.eventsProcessed || 0,
     trainingExamples: stats.trainingExamples || 0,
     positiveExamples: stats.positiveExamples || 0,
     negativeExamples: stats.negativeExamples || 0,
+    featureTrainingExamples: stats.featureTrainingExamples || 0,
+    replayedExamples: suggestionState.migration?.replayedRecords || 0,
     coldStart: (stats.trainingExamples || 0) < 5,
     updatedAt: suggestionState.updatedAt || null
   };
@@ -413,9 +452,10 @@ function enqueueSuggestionEvents(events = []) {
       metadata: event?.metadata && typeof event.metadata === 'object' ? event.metadata : null
     };
     const article = db.articles.find(item => item.id === articleId);
+    const enrichedArticle = enrichSuggestionArticle(article);
     accepted.push({
       queueItem,
-      record: createSuggestionEventRecord(queueItem, article, {
+      record: createSuggestionEventRecord(queueItem, enrichedArticle, {
         fullAbstract: article ? getCachedFullAbstract(article.id) : null,
         metadata: queueItem.metadata
       })
@@ -447,10 +487,12 @@ function processSuggestionQueue() {
 
       const article = db.articles.find(item => item.id === event.articleId);
       if (!article) continue;
+      const enrichedArticle = enrichSuggestionArticle(article);
 
       const fullAbstract = getEnrichmentText(suggestionState.fullAbstracts, article.id);
-      trainOnArticle(suggestionState, article, event.type, {
+      trainOnArticle(suggestionState, enrichedArticle, event.type, {
         fullAbstract,
+        metadata: event.metadata,
         now: event.occurredAt
       });
 
@@ -1616,7 +1658,7 @@ app.post('/api/articles/:id/read', (req, res) => {
       if (nextRead && shouldTrainExplicitReadSignal(source)) {
         enqueueSuggestionEvents([event]);
       } else {
-        const historyRecord = createSuggestionEventRecord(event, article, {
+        const historyRecord = createSuggestionEventRecord(event, enrichSuggestionArticle(article), {
           metadata: event.metadata,
           trainingEligible: false
         });
@@ -1666,7 +1708,7 @@ app.post('/api/articles/read-all', (req, res) => {
       type: 'read',
       eventId: `read:${crypto.randomUUID()}`,
       occurredAt,
-      metadata: { read: true, source: 'read-all' }
+      metadata: { read: true, source: 'read-all', batchSize: articlesToMarkRead.length }
     }));
     try {
       enqueueSuggestionEvents(readEvents);
