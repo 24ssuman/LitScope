@@ -138,9 +138,9 @@ function selectNewArticles(sourceArticles = [], checkpoint = null, existingArtic
 
   if (checkpointIndex !== -1) {
     return {
-      // RSS, Crossref, and ChemRxiv sources are requested newest-first. The
-      // entries before the checkpoint are the articles fetched since the last
-      // successful journal refresh.
+      // RSS, arXiv, Crossref, and ChemRxiv sources are requested newest-first.
+      // The entries before the checkpoint are the articles fetched since the
+      // last successful journal refresh.
       articles: articles.slice(0, checkpointIndex),
       checkpointFound: true,
       mode: 'after-checkpoint'

@@ -15,4 +15,4 @@ Opening a publisher or DOI link records the publisher visit as an `external` sug
 
 ## Adding a journal
 
-Use the `+` button beside the LitScope logo, then enter a journal name, its HTTP(S) RSS feed URL, and a category. The new feed is fetched immediately and is stored with the rest of the local feed configuration. The server returns the created feed ID, so journal names with spaces or punctuation continue to open correctly after adding them.
+Use the `+` button beside the LitScope logo, then enter a journal name, its HTTP(S) RSS or arXiv API query URL, and a category. The new feed is fetched immediately and is stored with the rest of the local feed configuration. The server returns the created feed ID, so journal names with spaces or punctuation continue to open correctly after adding them.

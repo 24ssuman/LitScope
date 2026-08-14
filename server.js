@@ -29,6 +29,7 @@ const {
   getChemRxivCategories,
   getCrossrefFallbacks,
   getJournalHomepages,
+  inferSource,
   isSupportedFeedUrl,
   slugifyFeedName
 } = require('./journal-config');
@@ -606,8 +607,8 @@ function resolveArticleLinkFromDoi(sourceLink, doi) {
   const cleanedDoi = String(doi || '').trim();
   if (!cleanedDoi) return sourceLink || '';
 
-  if (cleanedDoi.startsWith('arXiv:')) {
-    const arxivId = cleanedDoi.replace('arXiv:', '').trim();
+  if (/^arxiv:/i.test(cleanedDoi)) {
+    const arxivId = cleanedDoi.replace(/^arxiv:/i, '').trim();
     return `https://arxiv.org/abs/${arxivId}`;
   }
 
@@ -945,6 +946,58 @@ async function fetchJournalFromCrossref(feed, count = 20) {
     .map(item => crossrefItemToJournalArticle(item, feed, now));
 }
 
+// arXiv uses an Atom API rather than RSS or the separate ChemRxiv API. The
+// configured URL contains the complete category query, so this source can be
+// refreshed independently without changing ChemRxiv's API/fallback behavior.
+async function fetchArxiv(feed) {
+  const apiUrl = new URL(feed.url);
+  const feedData = await parser.parseURL(apiUrl.toString());
+  const now = new Date();
+
+  return (feedData.items || [])
+    .filter(item => !isCoverOrIndex(item.title || ''))
+    .map(item => {
+      const sourceLink = item.link || item.id || item.guid || '';
+      const guid = item.id || item.guid || sourceLink;
+      const doi = extractDoiFromFeedItem(item);
+      const link = resolveArticleLinkFromDoi(sourceLink, doi) || sourceLink;
+      const id = generateId(link || guid);
+      const existing = db.articles.find(article => (
+        article.id === id
+        || (
+          article.feedId === feed.id
+          && doi
+          && normalizeDoi(article.doi) === normalizeDoi(doi)
+        )
+      ));
+      const rawDate = item.isoDate || item.pubDate || item.published || item.updated;
+      const parsedDate = rawDate ? new Date(rawDate) : null;
+      const pubDate = parsedDate && Number.isFinite(parsedDate.getTime())
+        ? parsedDate.toISOString()
+        : now.toISOString();
+      const author = Array.isArray(item.author)
+        ? item.author.join(', ')
+        : item.author || item.creator || 'Unknown';
+      const isRead = resolveArticleReadState(existing, isArticleInReadHistory(doi, link));
+
+      return {
+        id,
+        feedId: feed.id,
+        feedName: feed.name,
+        title: item.title || 'Untitled arXiv preprint',
+        link,
+        guid,
+        doi,
+        author,
+        pubDate,
+        content: stripMarkup(item.summary || item.content || item.description || 'No abstract available.'),
+        read: isRead,
+        starred: existing ? existing.starred : false,
+        fetchedAt: existing ? existing.fetchedAt : now.toISOString()
+      };
+    });
+}
+
 function chemRxivLinkFromDoi(doi) {
   return `https://chemrxiv.org/doi/abs/${normalizeDoi(doi)}`;
 }
@@ -1151,9 +1204,12 @@ function mergeFetchedArticles(feed, sourceArticles) {
 // Fetch a single feed and merge articles
 async function fetchAndMergeFeed(feed, progressCallback) {
   if (progressCallback) progressCallback('fetching', feed);
-  
-  // Handle ChemRxiv custom API feeds (no RSS)
-  if (feed.url.startsWith('chemrxiv://')) {
+
+  const source = inferSource(feed.url);
+
+  // Handle ChemRxiv custom API feeds (no RSS). This path intentionally stays
+  // independent from the arXiv Atom API source below.
+  if (source === 'chemrxiv') {
     try {
       const articles = await fetchChemRxiv(feed);
       const { newCount } = mergeFetchedArticles(feed, articles);
@@ -1188,6 +1244,25 @@ async function fetchAndMergeFeed(feed, progressCallback) {
         feed.errorMessage = `${sourceMessage} Crossref fallback failed: ${fallbackErr.message}.`;
         if (progressCallback) progressCallback('fallback', feed, 0);
       }
+    }
+    return;
+  }
+
+  // Handle arXiv category queries independently from RSS and ChemRxiv.
+  if (source === 'arxiv') {
+    try {
+      const articles = await fetchArxiv(feed);
+      const { newCount } = mergeFetchedArticles(feed, articles);
+      feed.lastFetched = new Date().toISOString();
+      feed.status = 'ok';
+      feed.errorMessage = null;
+      if (progressCallback) progressCallback('done', feed, newCount);
+    } catch (err) {
+      console.error(`Error fetching arXiv feed ${feed.name}:`, err.message);
+      feed.lastFetched = new Date().toISOString();
+      feed.status = 'fallback';
+      feed.errorMessage = `arXiv API request failed: ${err.message}. Existing saved articles were kept.`;
+      if (progressCallback) progressCallback('fallback', feed, 0);
     }
     return;
   }

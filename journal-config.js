@@ -2,9 +2,9 @@
 
 /**
  * The shipped journal catalog lives here. Add an RSS-backed journal by adding
- * one object with an id, display name, RSS URL, and category. Optional
- * homepage and Crossref metadata keep the existing fallback behavior available
- * without requiring another server-side map.
+ * one object with an id, display name, RSS URL, and category. Special source
+ * URLs are kept in the same registry so each source can retain its own
+ * ingestion path without another server-side catalog.
  */
 const DEFAULT_JOURNALS = [
   // Category: Comp Chem
@@ -263,7 +263,19 @@ const DEFAULT_JOURNALS = [
     crossref: { issn: '1095-9203', rows: 20 }
   },
 
-  // Category: Preprints. These retain their existing non-RSS API/fallback path.
+  // Category: arXiv preprints. This is a separate source from ChemRxiv and
+  // queries the official arXiv Atom API for both requested subject categories.
+  {
+    id: 'arxiv-stat-mech-chem-phys',
+    name: 'arXiv: Statistical Mechanics, Chemical Physics',
+    url: 'https://export.arxiv.org/api/query?search_query=cat%3Acond-mat.stat-mech%20OR%20cat%3Aphysics.chem-ph&start=0&max_results=20&sortBy=submittedDate&sortOrder=descending',
+    category: 'Comp Chem',
+    source: 'arxiv',
+    homepage: 'https://arxiv.org/search/?query=cat%3Acond-mat.stat-mech+OR+cat%3Aphysics.chem-ph&searchtype=all'
+  },
+
+  // Category: ChemRxiv preprints. These retain their existing non-RSS
+  // API/Crossref fallback path and remain independent from arXiv.
   {
     id: 'chemrxiv-tcc',
     name: 'ChemRxiv: Theo/Comp',
@@ -285,9 +297,23 @@ const DEFAULT_JOURNALS = [
 ];
 
 function inferSource(url) {
-  return String(url || '').trim().toLowerCase().startsWith('chemrxiv://')
-    ? 'chemrxiv'
-    : 'rss';
+  const normalized = String(url || '').trim().toLowerCase();
+  if (normalized.startsWith('chemrxiv://')) return 'chemrxiv';
+
+  try {
+    const parsed = new URL(normalized);
+    if (
+      parsed.pathname === '/api/query'
+      && (parsed.hostname === 'export.arxiv.org' || parsed.hostname === 'arxiv.org')
+      && parsed.searchParams.has('search_query')
+    ) {
+      return 'arxiv';
+    }
+  } catch (err) {
+    // Validation below reports malformed URLs with the existing message.
+  }
+
+  return 'rss';
 }
 
 function isHttpUrl(value) {
@@ -331,17 +357,20 @@ function validateJournalDefinitions(definitions = DEFAULT_JOURNALS) {
     ids.add(journal.id);
 
     const source = journal.source || inferSource(journal.url);
-    if (!['rss', 'chemrxiv'].includes(source)) {
+    if (!['rss', 'chemrxiv', 'arxiv'].includes(source)) {
       throw new Error(`${label} has unsupported source: ${source}`);
     }
     if (!isSupportedFeedUrl(journal.url)) {
-      throw new Error(`${label} must use an HTTP(S) RSS URL or chemrxiv:// URL`);
+      throw new Error(`${label} must use an HTTP(S) RSS/arXiv URL or chemrxiv:// URL`);
     }
     if (source === 'rss' && inferSource(journal.url) !== 'rss') {
       throw new Error(`${label} marked as rss must use an HTTP(S) URL`);
     }
     if (source === 'chemrxiv' && !String(journal.categoryId || '').trim()) {
       throw new Error(`${label} is missing its ChemRxiv categoryId`);
+    }
+    if (source === 'arxiv' && inferSource(journal.url) !== 'arxiv') {
+      throw new Error(`${label} marked as arxiv must use an arXiv API query URL`);
     }
     if (journal.homepage !== undefined && !isHttpUrl(journal.homepage)) {
       throw new Error(`${label} homepage must be an HTTP(S) URL`);

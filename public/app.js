@@ -481,7 +481,7 @@ function getFeedIcon(feed) {
   } else if (id.startsWith('chemrxiv')) {
     text = 'CRx';
     bgColor = '#8e44ad'; // ChemRxiv purple
-  } else if (id === 'arxivchemphys') {
+  } else if (id.startsWith('arxiv')) {
     text = 'arXiv';
     bgColor = '#b33939'; // Terracotta
   } else {
@@ -1209,8 +1209,8 @@ async function selectArticle(articleId) {
     DOM.drawerDoiLink.innerText = article.doi;
     
     let resolvedUrl = '';
-    if (article.doi.startsWith('arXiv:')) {
-      const id = article.doi.replace('arXiv:', '').trim();
+    if (/^arxiv:/i.test(article.doi)) {
+      const id = article.doi.replace(/^arxiv:/i, '').trim();
       resolvedUrl = `https://arxiv.org/abs/${id}`;
     } else {
       resolvedUrl = `https://doi.org/${article.doi}`;
@@ -1915,8 +1915,8 @@ function buildArticleCitation(article) {
   const year = Number.isNaN(date.getTime()) ? 'n.d.' : date.getFullYear();
   const journal = stripHTML(article.feedName || '');
   const url = article.doi
-    ? (article.doi.startsWith('arXiv:')
-      ? `https://arxiv.org/abs/${article.doi.replace('arXiv:', '').trim()}`
+    ? (/^arxiv:/i.test(article.doi)
+      ? `https://arxiv.org/abs/${article.doi.replace(/^arxiv:/i, '').trim()}`
       : `https://doi.org/${article.doi}`)
     : article.link;
   const source = journal ? ` ${journal}.` : '';
