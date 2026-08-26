@@ -35,6 +35,10 @@ const {
   isSupportedFeedUrl,
   slugifyFeedName
 } = require('./journal-config');
+const {
+  SUGGESTION_PAGE_SIZE,
+  getSuggestionPagination
+} = require('./suggestion-pagination');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -1588,15 +1592,39 @@ app.get('/api/articles', (req, res) => {
 
 // 6. GET personalized article suggestions across every journal
 app.get('/api/suggestions', (req, res) => {
+  const requestedPage = Number.parseInt(req.query.page, 10);
   const requestedLimit = Number.parseInt(req.query.limit, 10);
-  const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
   const candidates = getSuggestionCandidates();
-  const articles = rankArticles(candidates, suggestionState, { limit });
 
-  res.json({
+  // Keep the original limit-only response compatible for non-paginated callers.
+  // The Suggested tab passes `page`, which activates the bounded three-page view.
+  if (req.query.page === undefined) {
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 50;
+    const articles = rankArticles(candidates, suggestionState, { limit });
+    return res.json({
+      articles,
+      total: candidates.length,
+      limit,
+      model: getSuggestionSummary()
+    });
+  }
+
+  const pagination = getSuggestionPagination(
+    candidates.length,
+    requestedPage,
+    Number.isFinite(requestedLimit) ? requestedLimit : SUGGESTION_PAGE_SIZE
+  );
+  const ranked = rankArticles(candidates, suggestionState, { limit: pagination.visibleTotal });
+  const articles = ranked.slice(pagination.offset, pagination.offset + pagination.pageSize);
+
+  return res.json({
     articles,
-    total: candidates.length,
-    limit,
+    total: pagination.total,
+    visibleTotal: pagination.visibleTotal,
+    hasMore: pagination.hasMore,
+    page: pagination.page,
+    pageCount: pagination.pageCount,
+    pageSize: pagination.pageSize,
     model: getSuggestionSummary()
   });
 });
@@ -1683,11 +1711,19 @@ app.post('/api/articles/:id/read', (req, res) => {
 // 10. POST mark all articles as read (scoped to feed or category)
 app.post('/api/articles/read-all', (req, res) => {
   const { feedId, category } = req.body;
+  const requestedArticleIds = Array.isArray(req.body?.articleIds)
+    ? new Set(req.body.articleIds
+      .map(articleId => String(articleId || '').trim())
+      .filter(Boolean)
+      .slice(0, 100))
+    : null;
   const articlesToMarkRead = [];
 
   db.articles.forEach(article => {
     let match = false;
-    if (feedId && article.feedId === feedId) {
+    if (requestedArticleIds) {
+      match = requestedArticleIds.has(article.id);
+    } else if (feedId && article.feedId === feedId) {
       match = true;
     } else if (category && !feedId) {
       const feedsInCategory = db.feeds.filter(f => f.category === category).map(f => f.id);

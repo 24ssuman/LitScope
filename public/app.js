@@ -21,6 +21,12 @@ const state = {
   isRefreshing: false,
   articleRequestId: 0,
   suggestionMeta: null,
+  suggestionPage: 1,
+  suggestionPageCount: 0,
+  suggestionPageSize: 20,
+  suggestionTotal: 0,
+  suggestionVisibleTotal: 0,
+  suggestionHasMore: false,
   suggestionEventQueue: [],
   suggestionFlushTimer: null,
   suggestionFlushPromise: null,
@@ -102,6 +108,16 @@ const API = {
       body: JSON.stringify({ feedId, category })
     });
     return res.json();
+  },
+  async markArticlesRead(articleIds) {
+    const res = await fetch('/api/articles/read-all', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ articleIds })
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to mark page as read');
+    return result;
   },
   async markStarred(id, starred) {
     const res = await fetch(`/api/articles/${id}/star`, {
@@ -693,10 +709,19 @@ async function loadArticles() {
   if (state.activeFeedId === 'suggested') {
     DOM.advancedSearchPanel.classList.add('hidden');
     try {
-      const res = await API.getSuggestions({ limit: 100 });
+      const res = await API.getSuggestions({
+        page: state.suggestionPage,
+        limit: state.suggestionPageSize
+      });
       if (requestId !== state.articleRequestId) return;
       state.articles = res.articles || [];
       state.suggestionMeta = res.model || null;
+      state.suggestionPage = Number(res.page) || 1;
+      state.suggestionPageCount = Number(res.pageCount) || 0;
+      state.suggestionPageSize = Number(res.pageSize) || state.suggestionPageSize;
+      state.suggestionTotal = Number(res.total) || 0;
+      state.suggestionVisibleTotal = Number(res.visibleTotal) || state.suggestionTotal;
+      state.suggestionHasMore = Boolean(res.hasMore);
       DOM.articleCountLabel.innerText = `${res.total || 0} candidates`;
 
       const status = await API.getStatus();
@@ -822,6 +847,61 @@ function appendSuggestionIntro() {
     <span class="suggestion-learning-count">${examples} active signal${examples === 1 ? '' : 's'} learned</span>
   `;
   DOM.articlesListContainer.appendChild(intro);
+}
+
+function appendSuggestionPagination() {
+  const pageCount = Number(state.suggestionPageCount) || 0;
+  if (pageCount <= 1) return;
+
+  const pagination = document.createElement('nav');
+  pagination.className = 'suggestion-pagination';
+  pagination.setAttribute('aria-label', 'Suggested paper pages');
+
+  const summary = document.createElement('span');
+  summary.className = 'suggestion-pagination-summary';
+  const visibleTotal = state.suggestionVisibleTotal || state.suggestionTotal;
+  const candidateSummary = state.suggestionHasMore
+    ? `top ${visibleTotal} of ${state.suggestionTotal}`
+    : `${state.suggestionTotal}`;
+  summary.innerText = `Page ${state.suggestionPage} of ${pageCount} · ${candidateSummary} candidates`;
+  pagination.appendChild(summary);
+
+  const buttons = document.createElement('div');
+  buttons.className = 'suggestion-page-buttons';
+  for (let page = 1; page <= pageCount; page += 1) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'suggestion-page-btn';
+    button.innerText = String(page);
+    button.setAttribute('aria-label', `Suggested papers page ${page}`);
+    if (page === state.suggestionPage) {
+      button.classList.add('active');
+      button.setAttribute('aria-current', 'page');
+    }
+    button.addEventListener('click', () => selectSuggestionPage(page));
+    buttons.appendChild(button);
+  }
+  pagination.appendChild(buttons);
+  DOM.articlesListContainer.appendChild(pagination);
+}
+
+function appendSuggestionReadAction() {
+  const unreadArticles = state.articles.filter(article => !article.read);
+  const bottomBtnContainer = document.createElement('div');
+  bottomBtnContainer.className = 'stream-bottom-actions suggestion-read-actions';
+  bottomBtnContainer.innerHTML = `
+    <button type="button" class="btn primary large-btn suggestion-mark-read-btn"${unreadArticles.length === 0 ? ' disabled' : ''}>
+      <i data-lucide="check-check"></i>
+      <span>Mark as read</span>
+    </button>
+  `;
+  const button = bottomBtnContainer.querySelector('button');
+  button.setAttribute('aria-label', unreadArticles.length === 0 ? 'All papers on this page are read' : 'Mark this page as read');
+  button.addEventListener('click', async event => {
+    event.stopPropagation();
+    await triggerMarkSuggestedPageRead(button);
+  });
+  DOM.articlesListContainer.appendChild(bottomBtnContainer);
 }
 
 function renderArticles() {
@@ -1036,6 +1116,11 @@ function renderArticles() {
     });
   });
 
+  if (isSuggestedView) {
+    appendSuggestionPagination();
+    appendSuggestionReadAction();
+  }
+
   // Append "Mark all as read" button at the bottom of the stream if there are unread articles
   const hasUnread = state.articles.some(a => !a.read);
   if (!isSuggestedView && state.articles.length > 0 && hasUnread) {
@@ -1109,6 +1194,25 @@ async function triggerMarkAllRead() {
   }
 }
 
+async function triggerMarkSuggestedPageRead(button) {
+  const articleIds = state.articles
+    .filter(article => !article.read)
+    .map(article => article.id);
+  if (articleIds.length === 0) return;
+
+  button.disabled = true;
+  try {
+    const res = await API.markArticlesRead(articleIds);
+    showToast(`Marked ${res.markedReadCount} papers on this page as read.`, 'success');
+    await refreshSidebar();
+    await updateBadgeCounts(await API.getStatus());
+    await loadArticles();
+  } catch (err) {
+    button.disabled = false;
+    showToast(err.message || 'Could not mark this page as read.', 'error');
+  }
+}
+
 // --- Selecting items ---
 function selectFeed(feedId) {
   state.activeFeedId = feedId;
@@ -1154,9 +1258,11 @@ function selectCategory(categoryName) {
 }
 
 function selectQuickNav(navId) {
+  const wasSuggestedView = state.activeFeedId === 'suggested';
   state.activeFeedId = navId;
   state.activeCategory = null;
   state.selectedArticleId = null;
+  if (navId === 'suggested' && !wasSuggestedView) state.suggestionPage = 1;
   
   document.querySelectorAll('.feed-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => {
@@ -1173,6 +1279,16 @@ function selectQuickNav(navId) {
   DOM.feedTitle.innerText = titles[navId] || 'Updates';
   
   closeDrawer();
+  loadArticles();
+}
+
+function selectSuggestionPage(page) {
+  if (state.activeFeedId !== 'suggested') return;
+  const nextPage = Number(page);
+  if (!Number.isInteger(nextPage) || nextPage < 1 || nextPage > state.suggestionPageCount) return;
+  if (nextPage === state.suggestionPage) return;
+  state.suggestionPage = nextPage;
+  DOM.streamContainer.scrollTop = 0;
   loadArticles();
 }
 

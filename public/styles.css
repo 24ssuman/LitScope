@@ -719,6 +719,58 @@ button, input {
   background: var(--accent-light);
 }
 
+.suggestion-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 8px;
+  padding: 16px 4px 4px;
+  border-top: 1px solid var(--border-color);
+}
+
+.suggestion-pagination-summary {
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.suggestion-page-buttons {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.suggestion-page-btn {
+  min-width: 34px;
+  height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-speed);
+}
+
+.suggestion-page-btn:hover,
+.suggestion-page-btn:focus-visible {
+  border-color: var(--accent-color);
+  color: var(--accent-color);
+  outline: none;
+}
+
+.suggestion-page-btn.active {
+  border-color: var(--accent-color);
+  background: var(--accent-color);
+  color: var(--bg-primary);
+}
+
+.cards-layout .suggestion-pagination {
+  grid-column: 1 / -1;
+}
+
 /* EMPTY STATE styling */
 .stream-empty {
   display: flex;
@@ -747,6 +799,13 @@ button, input {
 .stream-empty p {
   font-size: 14px;
   max-width: 320px;
+}
+
+@media (max-width: 600px) {
+  .suggestion-pagination {
+    align-items: flex-start;
+    flex-direction: column;
+  }
 }
 
 /* Date grouping divider */
@@ -1730,4 +1789,13 @@ kbd {
 .stream-bottom-actions .btn.large-btn:hover {
   transform: translateY(-2px);
   box-shadow: 0 10px 15px -3px rgba(168, 85, 247, 0.4);
+}
+
+.suggestion-read-actions {
+  padding-top: 24px;
+}
+
+.suggestion-mark-read-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }

@@ -9,6 +9,7 @@ Local Express app for tracking recent chemistry and computational chemistry arti
 - `articles_archive.csv` mirrors saved article metadata for spreadsheet use.
 - `public/` contains the browser UI.
 - `paper-suggestions.js` contains the local online neural ranker and abstract extraction helpers.
+- `suggestion-pagination.js` defines the bounded Suggested-page contract shared by the API and its tests.
 - `suggestion_events.jsonl` is an ignored append-only local log of captured suggestion/read interactions and stable article snapshots for future model replay.
 
 ## Run
@@ -36,6 +37,10 @@ The **Suggested** sidebar tab ranks recent papers from every journal with a loca
 The current model and cached fuller abstracts remain in ignored local `suggestions.json`; captured interaction records are appended to ignored local `suggestion_events.jsonl` with event metadata and a stable paper snapshot. When the feature schema changes, LitScope preserves the preceding ranker as a temporary compatibility blend and rebuilds the new feature model from eligible replay records. This keeps older aggregate learning available while letting richer features learn from the auditable event history. Neither store overwrites the article database or read/star state. Events accumulated before the replay log was added cannot be reconstructed exactly from raw events; passive visibility was never captured.
 
 Publisher abstract enrichment is best-effort and asynchronous. A blocked or slow publisher cannot prevent the article drawer or normal feed reading from working.
+
+The Suggested tab presents the top-ranked queue across up to three numbered pages, with 20 papers per page. The page controls preserve one ranked ordering; when more candidates exist, the UI labels the displayed top 60 separately from the full candidate count.
+
+Each Suggested page ends with **Mark as read**, which marks only that page's papers and keeps the existing explicit read signal and read-history persistence.
 
 ## Add another journal
 
