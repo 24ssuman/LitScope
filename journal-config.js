@@ -281,6 +281,42 @@ const DEFAULT_JOURNALS = [
     source: 'arxiv',
     homepage: 'https://arxiv.org/list/physics.chem-ph'
   },
+  {
+    id: 'chemical-reviews',
+    name: 'Chem. Rev.',
+    url: 'https://pubs.acs.org/rss/chreay/asap.xml',
+    category: 'Chem',
+    source: 'rss',
+    homepage: 'https://pubs.acs.org/journal/chreay',
+    crossref: { issn: '0009-2665', rows: 20 }
+  },
+  {
+    id: 'accounts-chemical-research',
+    name: 'Acc. Chem. Res.',
+    url: 'https://pubs.acs.org/rss/achre4/asap.xml',
+    category: 'Chem',
+    source: 'rss',
+    homepage: 'https://pubs.acs.org/journal/achre4',
+    crossref: { issn: '0001-4842', rows: 20 }
+  },
+  {
+    id: 'annual-review-physical-chemistry',
+    name: 'Annu. Rev. Phys. Chem.',
+    url: 'https://www.annualreviews.org/action/showFeed?ai=sy&feed=atom&jc=physchem&mi=3fndc3&type=etoc&ui=45mu4',
+    category: 'Chem',
+    source: 'rss',
+    homepage: 'https://www.annualreviews.org/content/journals/physchem',
+    crossref: { issn: '0066-426X', rows: 20 }
+  },
+  {
+    id: 'prl',
+    name: 'Phys. Rev. Lett.',
+    url: 'https://feeds.aps.org/rss/recent/prl.xml',
+    category: 'Chem',
+    source: 'rss',
+    homepage: 'https://journals.aps.org/prl',
+    crossref: { issn: '0031-9007', rows: 20 }
+  },
 
   // Category: ChemRxiv preprints. These retain their existing non-RSS
   // API/Crossref fallback path and remain independent from arXiv.
@@ -331,6 +367,36 @@ function isHttpUrl(value) {
   } catch (err) {
     return false;
   }
+}
+
+function inferPublisher(value) {
+  const url = String(value || '').trim().toLowerCase();
+  if (url.startsWith('chemrxiv://') || url.includes('chemrxiv.org')) return 'ChemRxiv';
+  if (url.includes('arxiv.org')) return 'arXiv';
+  try {
+    const host = new URL(url).hostname;
+    if (host.includes('acs.org')) return 'ACS';
+    if (host.includes('rsc.org') || url.includes('feedburner.com/rsc/')) return 'RSC';
+    if (host.includes('aip.org')) return 'AIP';
+    if (host.includes('aps.org')) return 'APS';
+    if (host.includes('annualreviews.org')) return 'Annual Reviews';
+    if (host.includes('wiley.com')) return 'Wiley';
+    if (host.includes('nature.com')) return 'Nature';
+    if (host.includes('pnas.org')) return 'PNAS';
+    if (host.includes('science.org')) return 'AAAS';
+  } catch (err) {
+    // Custom or malformed URLs are grouped below as their own source.
+  }
+  try {
+    return new URL(url).hostname.replace(/^www\./, '') || 'Other';
+  } catch (err) {
+    return 'Other';
+  }
+}
+
+function getJournalPublishers(definitions = DEFAULT_JOURNALS) {
+  validateJournalDefinitions(definitions);
+  return Object.fromEntries(definitions.map(journal => [journal.id, journal.publisher || inferPublisher(journal.url)]));
 }
 
 function isSupportedFeedUrl(value) {
@@ -448,6 +514,8 @@ module.exports = {
   getChemRxivCategories,
   getCrossrefFallbacks,
   getJournalHomepages,
+  getJournalPublishers,
+  inferPublisher,
   inferSource,
   isSupportedFeedUrl,
   slugifyFeedName,

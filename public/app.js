@@ -2,16 +2,11 @@
    LitScope client-side core logic (app.js)
    ========================================================================== */
 
-function createSuggestionSessionId() {
-  if (window.crypto?.randomUUID) return window.crypto.randomUUID();
-  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
-
 // --- Global Application State ---
 const state = {
   feeds: [],
   articles: [],
-  activeFeedId: 'today',       // 'today', 'new', 'saved', 'all', 'suggested', or feed ID
+  activeFeedId: 'today',       // 'today', 'saved', 'all', or feed ID
   activeCategory: null,        // Set when category is selected
   showUnreadOnly: true,        // Toggle read/unread filter
   viewMode: 'magazine',        // 'list', 'magazine', 'cards'
@@ -19,19 +14,7 @@ const state = {
   searchQuery: '',
   isSidebarOpen: false,
   isRefreshing: false,
-  articleRequestId: 0,
-  suggestionMeta: null,
-  suggestionPage: 1,
-  suggestionPageCount: 0,
-  suggestionPageSize: 20,
-  suggestionTotal: 0,
-  suggestionVisibleTotal: 0,
-  suggestionHasMore: false,
-  suggestionEventQueue: [],
-  suggestionFlushTimer: null,
-  suggestionFlushPromise: null,
-  suggestionEventCounter: 0,
-  suggestionSessionId: createSuggestionSessionId()
+  articleRequestId: 0
 };
 
 // --- API Helper Methods ---
@@ -47,25 +30,6 @@ const API = {
   async getArticles(params = {}) {
     const query = new URLSearchParams(params).toString();
     const res = await fetch(`/api/articles?${query}`);
-    return res.json();
-  },
-  async getSuggestions(params = {}) {
-    const query = new URLSearchParams(params).toString();
-    const res = await fetch(`/api/suggestions?${query}`);
-    return res.json();
-  },
-  async getFullAbstract(id) {
-    const res = await fetch(`/api/articles/${encodeURIComponent(id)}/abstract`);
-    return res.json();
-  },
-  async recordSuggestionEvents(events) {
-    const res = await fetch('/api/suggestions/events', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ events }),
-      keepalive: true
-    });
-    if (!res.ok) throw new Error('Failed to queue suggestion interactions');
     return res.json();
   },
   async addFeed(name, url, category) {
@@ -92,12 +56,11 @@ const API = {
     const res = await fetch(`/api/feeds/${id}`, { method: 'DELETE' });
     return res.json();
   },
-  async markRead(id, read, source = 'manual') {
+  async markRead(id, read) {
     const res = await fetch(`/api/articles/${id}/read`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ read, source }),
-      keepalive: true
+      body: JSON.stringify({ read })
     });
     return res.json();
   },
@@ -108,16 +71,6 @@ const API = {
       body: JSON.stringify({ feedId, category })
     });
     return res.json();
-  },
-  async markArticlesRead(articleIds) {
-    const res = await fetch('/api/articles/read-all', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ articleIds })
-    });
-    const result = await res.json();
-    if (!res.ok) throw new Error(result.error || 'Failed to mark page as read');
-    return result;
   },
   async markStarred(id, starred) {
     const res = await fetch(`/api/articles/${id}/star`, {
@@ -143,10 +96,6 @@ const API = {
     });
     return res.json();
   },
-  async resetDatabase() {
-    const res = await fetch('/api/reset', { method: 'POST' });
-    return res.json();
-  }
 };
 
 // --- DOM Elements Cache ---
@@ -161,11 +110,9 @@ const DOM = {
   
   // Navigation elements
   navToday: document.getElementById('nav-today'),
-  navSuggested: document.getElementById('nav-suggested'),
   navSaved: document.getElementById('nav-saved'),
   navAll: document.getElementById('nav-all'),
   countToday: document.getElementById('count-today'),
-  countSuggested: document.getElementById('count-suggested'),
   countSaved: document.getElementById('count-saved'),
   countAll: document.getElementById('count-all'),
   
@@ -182,7 +129,6 @@ const DOM = {
   
   themeToggleBtn: document.getElementById('theme-toggle-btn'),
   keyboardHelpBtn: document.getElementById('keyboard-help-btn'),
-  resetDbBtn: document.getElementById('reset-db-btn'),
   menuToggleBtn: document.getElementById('menu-toggle-btn'),
   sidebar: document.getElementById('sidebar'),
   
@@ -198,7 +144,6 @@ const DOM = {
   drawerDoiContainer: document.getElementById('drawer-doi-container'),
   drawerDoiLink: document.getElementById('drawer-doi-link'),
   drawerContent: document.getElementById('drawer-content'),
-  drawerAbstractStatus: document.getElementById('drawer-abstract-status'),
   drawerExternalLink: document.getElementById('drawer-external-link'),
   drawerCopyCitationBtn: document.getElementById('drawer-copy-citation-btn'),
   
@@ -325,85 +270,9 @@ function updateBadgeCounts(status) {
   DOM.countSaved.innerText = status.starredArticles || 0;
   DOM.countToday.innerText = status.todayUnreadArticles || 0;
   DOM.countNew.innerText = status.unreadArticles || 0;
-  DOM.countSuggested.innerText = status.suggestedArticles || 0;
 }
 
-function queueSuggestionEvent(article, type, { immediate = false } = {}) {
-  if (!article?.id || !type) return;
-  state.suggestionEventCounter += 1;
-  state.suggestionEventQueue.push({
-    articleId: article.id,
-    type,
-    eventId: `${state.suggestionSessionId}:${state.suggestionEventCounter}`,
-    occurredAt: new Date().toISOString()
-  });
-
-  if (immediate) {
-    if (state.suggestionFlushTimer) {
-      clearTimeout(state.suggestionFlushTimer);
-      state.suggestionFlushTimer = null;
-    }
-    void flushSuggestionEvents();
-    return;
-  }
-
-  if (!state.suggestionFlushTimer) {
-    state.suggestionFlushTimer = setTimeout(() => {
-      state.suggestionFlushTimer = null;
-      void flushSuggestionEvents();
-    }, 1000);
-  }
-}
-
-async function markPublisherVisitAsRead(article) {
-  if (!article?.id || article.read) return;
-
-  article.read = true;
-  const itemEl = document.querySelector(`.article-item[data-id="${article.id}"]`);
-  if (itemEl) {
-    itemEl.classList.add('read');
-    if (state.showUnreadOnly && state.activeFeedId !== 'suggested') {
-      itemEl.style.opacity = '0.3';
-      setTimeout(() => {
-        if (state.showUnreadOnly && article.read) itemEl.remove();
-      }, 300);
-    }
-  }
-
-  try {
-    await API.markRead(article.id, true, 'publisher');
-    await refreshSidebar();
-    updateBadgeCounts(await API.getStatus());
-  } catch (err) {
-    console.warn('Failed to mark publisher visit as read:', err.message);
-  }
-}
-
-async function flushSuggestionEvents() {
-  if (state.suggestionFlushPromise || state.suggestionEventQueue.length === 0) {
-    return state.suggestionFlushPromise;
-  }
-
-  const events = state.suggestionEventQueue.splice(0, 100);
-  state.suggestionFlushPromise = API.recordSuggestionEvents(events)
-    .catch(err => {
-      console.warn('Suggestion interactions could not be queued:', err.message);
-      state.suggestionEventQueue.unshift(...events);
-    })
-    .finally(() => {
-      state.suggestionFlushPromise = null;
-      if (state.suggestionEventQueue.length > 0 && !state.suggestionFlushTimer) {
-        state.suggestionFlushTimer = setTimeout(() => {
-          state.suggestionFlushTimer = null;
-          void flushSuggestionEvents();
-        }, 1000);
-      }
-    });
-
-  return state.suggestionFlushPromise;
-}
-
-const QUICK_NAV_IDS = new Set(['today', 'new', 'saved', 'all', 'suggested']);
+const QUICK_NAV_IDS = new Set(['today', 'new', 'saved', 'all']);
 
 function sortFeedsForSidebar(feeds = []) {
   return [...feeds].sort((a, b) => {
@@ -587,22 +456,19 @@ async function refreshSidebar() {
     datalist.innerHTML = uniqueCategories.map(cat => `<option value="${cat}">`).join('');
     updateJournalFilterOptions();
 
-    // Group feeds by category
+    // Group feeds by publisher while retaining each feed's saved category for
+    // the existing filters and read actions.
     const grouped = {};
     state.feeds.forEach(feed => {
-      if (!grouped[feed.category]) grouped[feed.category] = [];
-      grouped[feed.category].push(feed);
+      const publisher = feed.publisher || 'Other';
+      if (!grouped[publisher]) grouped[publisher] = [];
+      grouped[publisher].push(feed);
     });
 
     // Render tree inside container
     DOM.feedsListContainer.innerHTML = '';
     
-    // Order categories: Comp Chem first, Chem second, then others alphabetically
-    const keys = Object.keys(grouped);
-    const sortedCategories = [];
-    if (keys.includes('Comp Chem')) sortedCategories.push('Comp Chem');
-    if (keys.includes('Chem')) sortedCategories.push('Chem');
-    keys.filter(k => k !== 'Comp Chem' && k !== 'Chem').sort().forEach(k => sortedCategories.push(k));
+    const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
     
     if (sortedCategories.length === 0) {
       DOM.feedsListContainer.innerHTML = `<div class="sidebar-empty">No feeds added yet. Click + to add your first feed!</div>`;
@@ -629,12 +495,7 @@ async function refreshSidebar() {
       
       // Toggle collapse on arrow / text click
       headerEl.addEventListener('click', (e) => {
-        // If clicking category name directly, select category stream
-        if (e.target.classList.contains('category-name')) {
-          selectCategory(category);
-        } else {
-          groupEl.classList.toggle('collapsed');
-        }
+        groupEl.classList.toggle('collapsed');
       });
       
       const feedsContainerEl = document.createElement('div');
@@ -705,36 +566,6 @@ async function loadArticles() {
   const requestId = ++state.articleRequestId;
   DOM.articlesListContainer.innerHTML = '<div class="loading-placeholder">Loading articles...</div>';
   DOM.streamEmpty.classList.add('hidden');
-
-  if (state.activeFeedId === 'suggested') {
-    DOM.advancedSearchPanel.classList.add('hidden');
-    try {
-      const res = await API.getSuggestions({
-        page: state.suggestionPage,
-        limit: state.suggestionPageSize
-      });
-      if (requestId !== state.articleRequestId) return;
-      state.articles = res.articles || [];
-      state.suggestionMeta = res.model || null;
-      state.suggestionPage = Number(res.page) || 1;
-      state.suggestionPageCount = Number(res.pageCount) || 0;
-      state.suggestionPageSize = Number(res.pageSize) || state.suggestionPageSize;
-      state.suggestionTotal = Number(res.total) || 0;
-      state.suggestionVisibleTotal = Number(res.visibleTotal) || state.suggestionTotal;
-      state.suggestionHasMore = Boolean(res.hasMore);
-      DOM.articleCountLabel.innerText = `${res.total || 0} candidates`;
-
-      const status = await API.getStatus();
-      if (requestId !== state.articleRequestId) return;
-      updateBadgeCounts(status);
-      renderArticles();
-    } catch (err) {
-      if (requestId !== state.articleRequestId) return;
-      console.error('Failed to fetch suggestions:', err);
-      DOM.articlesListContainer.innerHTML = '<div class="loading-placeholder error">Error loading suggestions.</div>';
-    }
-    return;
-  }
 
   const params = {
     limit: 100
@@ -812,102 +643,8 @@ async function loadArticles() {
   }
 }
 
-function getSuggestionScoreMarkup(article) {
-  if (state.activeFeedId !== 'suggested' || article.suggestionScore === undefined) return '';
-  const score = Math.round(Math.max(0, Math.min(1, Number(article.suggestionScore) || 0)) * 100);
-  return `<span class="suggestion-score" title="Predicted interest from paper features and interactions">${score}% match</span>`;
-}
-
-function updateStreamEmptyState(isSuggestedView) {
-  const heading = DOM.streamEmpty.querySelector('h2');
-  const message = DOM.streamEmpty.querySelector('p');
-  if (isSuggestedView) {
-    heading.innerText = 'No suggestions yet';
-    message.innerText = 'Open or visit a few papers and LitScope will learn your taste in the background.';
-  } else {
-    heading.innerText = "You're all caught up!";
-    message.innerText = 'No unread articles in this view. Try fetching fresh articles or changing the filter.';
-  }
-}
-
-function appendSuggestionIntro() {
-  const meta = state.suggestionMeta || {};
-  const examples = Number(meta.trainingExamples || 0);
-  const description = meta.coldStart
-    ? 'This list is starting cold. Open, visit, or star papers; explicitly marking a paper read also teaches the ranker what to avoid.'
-    : 'The ranker learns paper content, authors, source metadata, and positive or negative interaction signals across every journal. Publisher visits mark papers read, but only explicit read/dismiss actions count as negative feedback.';
-  const intro = document.createElement('div');
-  intro.className = 'suggestion-intro';
-  intro.innerHTML = `
-    <div>
-      <span class="eyebrow">Personalized reading queue</span>
-      <h2>Suggested for you</h2>
-      <p>${description}</p>
-    </div>
-    <span class="suggestion-learning-count">${examples} active signal${examples === 1 ? '' : 's'} learned</span>
-  `;
-  DOM.articlesListContainer.appendChild(intro);
-}
-
-function appendSuggestionPagination() {
-  const pageCount = Number(state.suggestionPageCount) || 0;
-  if (pageCount <= 1) return;
-
-  const pagination = document.createElement('nav');
-  pagination.className = 'suggestion-pagination';
-  pagination.setAttribute('aria-label', 'Suggested paper pages');
-
-  const summary = document.createElement('span');
-  summary.className = 'suggestion-pagination-summary';
-  const visibleTotal = state.suggestionVisibleTotal || state.suggestionTotal;
-  const candidateSummary = state.suggestionHasMore
-    ? `top ${visibleTotal} of ${state.suggestionTotal}`
-    : `${state.suggestionTotal}`;
-  summary.innerText = `Page ${state.suggestionPage} of ${pageCount} · ${candidateSummary} candidates`;
-  pagination.appendChild(summary);
-
-  const buttons = document.createElement('div');
-  buttons.className = 'suggestion-page-buttons';
-  for (let page = 1; page <= pageCount; page += 1) {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.className = 'suggestion-page-btn';
-    button.innerText = String(page);
-    button.setAttribute('aria-label', `Suggested papers page ${page}`);
-    if (page === state.suggestionPage) {
-      button.classList.add('active');
-      button.setAttribute('aria-current', 'page');
-    }
-    button.addEventListener('click', () => selectSuggestionPage(page));
-    buttons.appendChild(button);
-  }
-  pagination.appendChild(buttons);
-  DOM.articlesListContainer.appendChild(pagination);
-}
-
-function appendSuggestionReadAction() {
-  const unreadArticles = state.articles.filter(article => !article.read);
-  const bottomBtnContainer = document.createElement('div');
-  bottomBtnContainer.className = 'stream-bottom-actions suggestion-read-actions';
-  bottomBtnContainer.innerHTML = `
-    <button type="button" class="btn primary large-btn suggestion-mark-read-btn"${unreadArticles.length === 0 ? ' disabled' : ''}>
-      <i data-lucide="check-check"></i>
-      <span>Mark as read</span>
-    </button>
-  `;
-  const button = bottomBtnContainer.querySelector('button');
-  button.setAttribute('aria-label', unreadArticles.length === 0 ? 'All papers on this page are read' : 'Mark this page as read');
-  button.addEventListener('click', async event => {
-    event.stopPropagation();
-    await triggerMarkSuggestedPageRead(button);
-  });
-  DOM.articlesListContainer.appendChild(bottomBtnContainer);
-}
-
 function renderArticles() {
   DOM.articlesListContainer.innerHTML = '';
-  const isSuggestedView = state.activeFeedId === 'suggested';
-  updateStreamEmptyState(isSuggestedView);
   
   if (state.articles.length === 0) {
     DOM.streamEmpty.classList.remove('hidden');
@@ -917,8 +654,6 @@ function renderArticles() {
   // Update layout CSS class on viewport container
   DOM.streamContainer.className = `stream-container`;
   DOM.articlesListContainer.className = `stream-content ${state.viewMode}-layout`;
-
-  if (isSuggestedView) appendSuggestionIntro();
   
   // Group articles by date relative tag (Today, Yesterday, Older)
   const todayGroup = [];
@@ -945,19 +680,17 @@ function renderArticles() {
     }
   });
 
-  const groups = isSuggestedView
-    ? [{ title: 'Suggested papers', items: state.articles }]
-    : [
-      { title: 'Today', items: todayGroup },
-      { title: 'Yesterday', items: yesterdayGroup },
-      { title: 'Older Articles', items: olderGroup }
-    ];
+  const groups = [
+    { title: 'Today', items: todayGroup },
+    { title: 'Yesterday', items: yesterdayGroup },
+    { title: 'Older Articles', items: olderGroup }
+  ];
 
   groups.forEach(g => {
     if (g.items.length === 0) return;
     
     // Render group header (except in Cards Grid view where dividers ruin layout flow)
-    if (state.viewMode !== 'cards' && !isSuggestedView) {
+    if (state.viewMode !== 'cards') {
       const headerEl = document.createElement('div');
       headerEl.className = 'date-group-header';
       headerEl.innerText = g.title;
@@ -980,7 +713,6 @@ function renderArticles() {
           <div class="article-title-snippet">
             <span class="article-title">${escapeHTML(article.title)}</span>
             <span class="article-snippet">— ${escapeHTML(stripHTML(article.content))}</span>
-            ${getSuggestionScoreMarkup(article)}
           </div>
           <span class="article-meta-right">${relTime}</span>
           <div class="article-actions">
@@ -1006,7 +738,6 @@ function renderArticles() {
             <span class="article-date">${relTime}</span>
           </div>
           <h2 class="article-title">${escapeHTML(article.title)}</h2>
-          ${getSuggestionScoreMarkup(article)}
           <p class="article-snippet">${escapeHTML(stripHTML(article.content))}</p>
           <div class="article-footer">
             <span class="article-authors">By ${escapeHTML(formatAuthorsList(article.author))}</span>
@@ -1034,7 +765,6 @@ function renderArticles() {
             <span>${relTime}</span>
           </div>
           <h2 class="article-title">${escapeHTML(article.title)}</h2>
-          ${getSuggestionScoreMarkup(article)}
           ${article.doi ? `<div class="article-doi">DOI: ${escapeHTML(article.doi)}</div>` : ''}
           <p class="article-snippet">${escapeHTML(stripHTML(article.content))}</p>
           <div class="article-footer">
@@ -1055,14 +785,6 @@ function renderArticles() {
       }
 
       // Action Handlers
-      const externalLink = itemEl.querySelector('.link-external');
-      if (externalLink) {
-        externalLink.addEventListener('click', () => {
-          queueSuggestionEvent(article, 'external');
-          void markPublisherVisitAsRead(article);
-        });
-      }
-
       // Toggle star/bookmark
       itemEl.querySelector('.star-toggle').addEventListener('click', async (e) => {
         e.stopPropagation();
@@ -1072,8 +794,6 @@ function renderArticles() {
         // Optimistic UI updates
         const btn = e.currentTarget;
         btn.classList.toggle('starred', nextStarred);
-
-        queueSuggestionEvent(article, nextStarred ? 'star' : 'unstar');
         
         await API.markStarred(article.id, nextStarred);
         if (state.activeFeedId === 'saved' && !nextStarred) {
@@ -1092,7 +812,7 @@ function renderArticles() {
         // Optimistic UI updates
         itemEl.classList.toggle('read', nextRead);
         
-        await API.markRead(article.id, nextRead, 'manual');
+        await API.markRead(article.id, nextRead);
         
         if (state.showUnreadOnly && nextRead) {
           // Fade and remove if unread only is enabled
@@ -1116,14 +836,9 @@ function renderArticles() {
     });
   });
 
-  if (isSuggestedView) {
-    appendSuggestionPagination();
-    appendSuggestionReadAction();
-  }
-
   // Append "Mark all as read" button at the bottom of the stream if there are unread articles
   const hasUnread = state.articles.some(a => !a.read);
-  if (!isSuggestedView && state.articles.length > 0 && hasUnread) {
+  if (state.articles.length > 0 && hasUnread) {
     const bottomBtnContainer = document.createElement('div');
     bottomBtnContainer.className = 'stream-bottom-actions';
     bottomBtnContainer.innerHTML = `
@@ -1146,15 +861,11 @@ function renderArticles() {
 function jumpToNextUnreadFeedGlobal(excludeFeedId = null) {
   const grouped = {};
   state.feeds.forEach(feed => {
-    if (!grouped[feed.category]) grouped[feed.category] = [];
-    grouped[feed.category].push(feed);
+    const publisher = feed.publisher || 'Other';
+    if (!grouped[publisher]) grouped[publisher] = [];
+    grouped[publisher].push(feed);
   });
-  
-  const keys = Object.keys(grouped);
-  const sortedCategories = [];
-  if (keys.includes('Comp Chem')) sortedCategories.push('Comp Chem');
-  if (keys.includes('Chem')) sortedCategories.push('Chem');
-  keys.filter(k => k !== 'Comp Chem' && k !== 'Chem').sort().forEach(k => sortedCategories.push(k));
+  const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
   
   for (const category of sortedCategories) {
     const feeds = sortFeedsForSidebar(grouped[category]);
@@ -1191,25 +902,6 @@ async function triggerMarkAllRead() {
   if (!jumpToNextUnreadFeedGlobal(feedParam)) {
     // No unread feeds left anywhere — reload current (will show empty state)
     loadArticles();
-  }
-}
-
-async function triggerMarkSuggestedPageRead(button) {
-  const articleIds = state.articles
-    .filter(article => !article.read)
-    .map(article => article.id);
-  if (articleIds.length === 0) return;
-
-  button.disabled = true;
-  try {
-    const res = await API.markArticlesRead(articleIds);
-    showToast(`Marked ${res.markedReadCount} papers on this page as read.`, 'success');
-    await refreshSidebar();
-    await updateBadgeCounts(await API.getStatus());
-    await loadArticles();
-  } catch (err) {
-    button.disabled = false;
-    showToast(err.message || 'Could not mark this page as read.', 'error');
   }
 }
 
@@ -1258,37 +950,19 @@ function selectCategory(categoryName) {
 }
 
 function selectQuickNav(navId) {
-  const wasSuggestedView = state.activeFeedId === 'suggested';
   state.activeFeedId = navId;
   state.activeCategory = null;
   state.selectedArticleId = null;
-  if (navId === 'suggested' && !wasSuggestedView) state.suggestionPage = 1;
   
   document.querySelectorAll('.feed-item').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.nav-item').forEach(el => {
     el.classList.toggle('active', el.id === `nav-${navId}`);
   });
   
-  const titles = {
-    today: 'Today\'s updates',
-    new: 'New Articles',
-    saved: 'Saved for Later',
-    all: 'All articles',
-    suggested: 'Suggested papers'
-  };
+  const titles = { today: 'Today\'s updates', new: 'New Articles', saved: 'Saved for Later', all: 'All articles' };
   DOM.feedTitle.innerText = titles[navId] || 'Updates';
   
   closeDrawer();
-  loadArticles();
-}
-
-function selectSuggestionPage(page) {
-  if (state.activeFeedId !== 'suggested') return;
-  const nextPage = Number(page);
-  if (!Number.isInteger(nextPage) || nextPage < 1 || nextPage > state.suggestionPageCount) return;
-  if (nextPage === state.suggestionPage) return;
-  state.suggestionPage = nextPage;
-  DOM.streamContainer.scrollTop = 0;
   loadArticles();
 }
 
@@ -1302,22 +976,13 @@ async function selectArticle(articleId) {
   
   const article = state.articles.find(a => a.id === articleId);
   if (!article) return;
-
-  queueSuggestionEvent(article, 'open');
   
   // Populate drawer
   DOM.drawerFeedName.innerHTML = getJournalBadge(article.feedName, article.feedId);
   DOM.drawerDate.innerText = formatFullDate(article.pubDate);
   DOM.drawerTitle.innerText = article.title;
   DOM.drawerAuthors.innerText = `By ${formatAuthorsList(article.author)}`;
-  DOM.drawerContent.innerText = article.fullAbstract || stripHTML(article.content);
-  if (article.fullAbstract) {
-    DOM.drawerAbstractStatus.innerText = 'Fuller abstract loaded from publisher';
-    DOM.drawerAbstractStatus.classList.remove('hidden');
-  } else {
-    DOM.drawerAbstractStatus.innerText = 'Looking for a fuller publisher abstract…';
-    DOM.drawerAbstractStatus.classList.remove('hidden');
-  }
+  DOM.drawerContent.innerText = stripHTML(article.content);
   
   // DOI or ID resolution
   if (article.doi) {
@@ -1352,10 +1017,6 @@ async function selectArticle(articleId) {
   
   // Slide drawer open
   DOM.detailDrawer.classList.add('open');
-
-  if (!article.fullAbstract) {
-    void loadFullAbstractForArticle(article);
-  }
   
   // Auto-mark as read if unread
   if (!article.read) {
@@ -1369,37 +1030,9 @@ async function selectArticle(articleId) {
         }, 100);
       }
     }
-    await API.markRead(articleId, true, 'open');
+    await API.markRead(articleId, true);
     await refreshSidebar();
     await updateBadgeCounts(await API.getStatus());
-  }
-}
-
-async function loadFullAbstractForArticle(article) {
-  try {
-    const result = await API.getFullAbstract(article.id);
-    if (!result.fullAbstract) {
-      if (state.selectedArticleId === article.id) {
-        DOM.drawerAbstractStatus.innerText = 'Publisher abstract unavailable; showing feed summary';
-      }
-      return;
-    }
-
-    article.fullAbstract = result.fullAbstract;
-    // The click already queued an `open` signal. This lighter follow-up lets
-    // the fuller publisher abstract shape the same preference once available.
-    queueSuggestionEvent(article, 'abstract');
-    if (state.selectedArticleId === article.id) {
-      DOM.drawerContent.innerText = result.fullAbstract;
-      DOM.drawerAbstractStatus.innerText = result.cached
-        ? 'Fuller abstract loaded from publisher cache'
-        : 'Fuller abstract loaded from publisher';
-    }
-  } catch (err) {
-    if (state.selectedArticleId === article.id) {
-      DOM.drawerAbstractStatus.innerText = 'Publisher abstract unavailable; showing feed summary';
-    }
-    console.warn('Full abstract lookup failed:', err.message);
   }
 }
 
@@ -1490,7 +1123,6 @@ function bindEvents() {
   
   // Navigation Links
   DOM.navToday.addEventListener('click', (e) => { e.preventDefault(); selectQuickNav('today'); });
-  DOM.navSuggested.addEventListener('click', (e) => { e.preventDefault(); selectQuickNav('suggested'); });
   DOM.navNew.addEventListener('click', (e) => { e.preventDefault(); selectQuickNav('new'); });
   DOM.navSaved.addEventListener('click', (e) => { e.preventDefault(); selectQuickNav('saved'); });
   DOM.navAll.addEventListener('click', (e) => { e.preventDefault(); selectQuickNav('all'); });
@@ -1540,15 +1172,6 @@ function bindEvents() {
     DOM.keyboardModal.classList.add('hidden');
   });
   
-  // Reset database button
-  DOM.resetDbBtn.addEventListener('click', async () => {
-    if (confirm('Are you sure you want to reset the database? All custom feeds, article read states, and bookmarks will be wiped.')) {
-      await API.resetDatabase();
-      showToast('Database reset to defaults!', 'success');
-      window.location.reload();
-    }
-  });
-
   // Filter modes (Unread vs All)
   DOM.filterUnreadBtn.addEventListener('click', async () => {
     state.showUnreadOnly = true;
@@ -1599,20 +1222,6 @@ function bindEvents() {
 
   // Drawer toggles
   DOM.drawerCloseBtn.addEventListener('click', closeDrawer);
-  DOM.drawerExternalLink.addEventListener('click', () => {
-    const article = state.articles.find(item => item.id === state.selectedArticleId);
-    if (article) {
-      queueSuggestionEvent(article, 'external');
-      void markPublisherVisitAsRead(article);
-    }
-  });
-  DOM.drawerDoiLink.addEventListener('click', () => {
-    const article = state.articles.find(item => item.id === state.selectedArticleId);
-    if (article) {
-      queueSuggestionEvent(article, 'external');
-      void markPublisherVisitAsRead(article);
-    }
-  });
   DOM.drawerCopyCitationBtn.addEventListener('click', () => {
     const article = state.articles.find(item => item.id === state.selectedArticleId);
     if (article) copyArticleCitation(article);
@@ -1638,8 +1247,6 @@ function bindEvents() {
       const starBtn = itemEl.querySelector('.star-toggle');
       if (starBtn) starBtn.classList.toggle('starred', nextStarred);
     }
-
-    queueSuggestionEvent(article, nextStarred ? 'star' : 'unstar');
     
     await API.markStarred(article.id, nextStarred);
     await updateBadgeCounts(await API.getStatus());
@@ -1665,7 +1272,7 @@ function bindEvents() {
       itemEl.classList.toggle('read', nextRead);
     }
     
-    await API.markRead(article.id, nextRead, 'manual');
+    await API.markRead(article.id, nextRead);
     await refreshSidebar();
     await updateBadgeCounts(await API.getStatus());
   });
@@ -1764,10 +1371,6 @@ function bindEvents() {
 
   // Keyboard Navigation Bindings
   document.addEventListener('keydown', handleKeyboardShortcuts);
-  document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'hidden') void flushSuggestionEvents();
-  });
-  window.addEventListener('pagehide', () => { void flushSuggestionEvents(); });
 
   // Close modals on clicking backdrop overlay
   document.querySelectorAll('.modal-overlay').forEach(overlay => {
@@ -1849,7 +1452,7 @@ async function handleKeyboardShortcuts(e) {
           DOM.drawerReadBtn.innerHTML = nextRead ? '<i data-lucide="mail-open"></i>' : '<i data-lucide="check"></i>';
           lucide.createIcons();
           
-          await API.markRead(article.id, nextRead, 'manual');
+          await API.markRead(article.id, nextRead);
           await refreshSidebar();
           await updateBadgeCounts(await API.getStatus());
         }
@@ -1899,8 +1502,6 @@ async function handleKeyboardShortcuts(e) {
       if (state.selectedArticleId) {
         const article = state.articles.find(a => a.id === state.selectedArticleId);
         if (article && article.link) {
-          queueSuggestionEvent(article, 'external');
-          void markPublisherVisitAsRead(article);
           window.open(article.link, '_blank');
         }
       }

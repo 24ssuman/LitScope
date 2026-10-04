@@ -8,6 +8,8 @@ const {
   getChemRxivCategories,
   getCrossrefFallbacks,
   getJournalHomepages,
+  getJournalPublishers,
+  inferPublisher,
   inferSource,
   isSupportedFeedUrl,
   slugifyFeedName,
@@ -15,8 +17,8 @@ const {
 } = require('./journal-config');
 
 test('the registry retains the current journal catalog and feed shape', () => {
-  assert.equal(DEFAULT_JOURNALS.length, 32);
-  assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'rss').length, 28);
+  assert.equal(DEFAULT_JOURNALS.length, 36);
+  assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'rss').length, 32);
   assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'chemrxiv').length, 2);
   assert.equal(DEFAULT_JOURNALS.filter(journal => journal.source === 'arxiv').length, 2);
 
@@ -44,6 +46,28 @@ test('optional fallback metadata is derived from the same registry', () => {
     'chemrxiv-tcc': '605c704b6c174a001015cca0',
     'chemrxiv-pc': '605c704b6c174a001015cc9e'
   });
+});
+
+test('requested review and physics journals use abbreviated names and publisher feeds', () => {
+  const requested = [
+    ['chemical-reviews', 'Chem. Rev.', 'https://pubs.acs.org/rss/chreay/asap.xml', 'ACS'],
+    ['accounts-chemical-research', 'Acc. Chem. Res.', 'https://pubs.acs.org/rss/achre4/asap.xml', 'ACS'],
+    ['annual-review-physical-chemistry', 'Annu. Rev. Phys. Chem.', /annualreviews\.org\/action\/showFeed/, 'Annual Reviews'],
+    ['prl', 'Phys. Rev. Lett.', 'https://feeds.aps.org/rss/recent/prl.xml', 'APS']
+  ];
+  const publishers = getJournalPublishers();
+
+  for (const [id, name, url, publisher] of requested) {
+    const journal = DEFAULT_JOURNALS.find(item => item.id === id);
+    assert.ok(journal, `${id} is in the default catalog`);
+    assert.equal(journal.name, name);
+    if (url instanceof RegExp) assert.match(journal.url, url);
+    else assert.equal(journal.url, url);
+    assert.equal(publishers[id], publisher);
+  }
+
+  assert.equal(inferPublisher('https://pubs.rsc.org/en/journals'), 'RSC');
+  assert.equal(inferPublisher('https://onlinelibrary.wiley.com/feed/example'), 'Wiley');
 });
 
 test('a new RSS journal needs only the core definition fields', () => {
