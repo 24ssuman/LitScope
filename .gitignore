@@ -14,9 +14,12 @@ yarn-error.log*
 db.json
 read_history.json
 articles_archive.csv
+suggestions.json
+suggestion_events.jsonl
 local/
 personal/
 private/
+tmp/
 
 # Local Codex working notes
 AGENTS.md
