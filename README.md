@@ -11,7 +11,10 @@ Local Express app for tracking recent chemistry and computational chemistry arti
 
 ## Run
 
+You need Node.js and npm installed in the workspace. From the project directory, install the dependencies first, then start the app:
+
 ```bash
+npm install
 npm start
 ```
 
