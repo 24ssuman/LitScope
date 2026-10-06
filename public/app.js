@@ -273,6 +273,54 @@ function updateBadgeCounts(status) {
 }
 
 const QUICK_NAV_IDS = new Set(['today', 'new', 'saved', 'all']);
+const PUBLISHER_ORDER_STORAGE_KEY = 'litscope.publisherOrder.v1';
+let draggedPublisherGroup = null;
+
+function getSavedPublisherOrder() {
+  try {
+    const savedOrder = JSON.parse(localStorage.getItem(PUBLISHER_ORDER_STORAGE_KEY) || '[]');
+    if (!Array.isArray(savedOrder)) return [];
+    return [...new Set(savedOrder.filter(publisher => typeof publisher === 'string'))];
+  } catch (err) {
+    return [];
+  }
+}
+
+function getOrderedPublishers(publishers) {
+  const availablePublishers = [...new Set(publishers)];
+  const availableSet = new Set(availablePublishers);
+  const savedOrder = getSavedPublisherOrder().filter(publisher => availableSet.has(publisher));
+  const savedSet = new Set(savedOrder);
+  const newPublishers = availablePublishers
+    .filter(publisher => !savedSet.has(publisher))
+    .sort((a, b) => a.localeCompare(b));
+
+  return [...savedOrder, ...newPublishers];
+}
+
+function persistPublisherOrder() {
+  const publisherOrder = [...DOM.feedsListContainer.querySelectorAll(':scope > .category-group')]
+    .map(group => group.dataset.publisher)
+    .filter(Boolean);
+
+  try {
+    localStorage.setItem(PUBLISHER_ORDER_STORAGE_KEY, JSON.stringify(publisherOrder));
+  } catch (err) {
+    console.warn('Could not save the publisher section order locally:', err);
+  }
+}
+
+function movePublisherGroup(groupEl, direction) {
+  const sibling = direction === 'up' ? groupEl.previousElementSibling : groupEl.nextElementSibling;
+  if (!sibling) return;
+
+  if (direction === 'up') {
+    DOM.feedsListContainer.insertBefore(groupEl, sibling);
+  } else {
+    DOM.feedsListContainer.insertBefore(sibling, groupEl);
+  }
+  persistPublisherOrder();
+}
 
 function sortFeedsForSidebar(feeds = []) {
   return [...feeds].sort((a, b) => {
@@ -468,34 +516,78 @@ async function refreshSidebar() {
     // Render tree inside container
     DOM.feedsListContainer.innerHTML = '';
     
-    const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
+    const sortedPublishers = getOrderedPublishers(Object.keys(grouped));
     
-    if (sortedCategories.length === 0) {
+    if (sortedPublishers.length === 0) {
       DOM.feedsListContainer.innerHTML = `<div class="sidebar-empty">No feeds added yet. Click + to add your first feed!</div>`;
       return;
     }
 
-    sortedCategories.forEach(category => {
+    sortedPublishers.forEach(publisher => {
       // Sort feeds within this category
-      const feeds = sortFeedsForSidebar(grouped[category]);
+      const feeds = sortFeedsForSidebar(grouped[publisher]);
       
       const groupEl = document.createElement('div');
       groupEl.className = 'category-group';
-      groupEl.dataset.category = category;
+      groupEl.dataset.publisher = publisher;
       
       // Category Header
       const headerEl = document.createElement('div');
       headerEl.className = 'category-header';
       const unreadCount = feeds.reduce((total, feed) => total + feed.unreadCount, 0);
       headerEl.innerHTML = `
+        <button type="button" class="category-drag-handle" draggable="true" aria-label="Reorder ${escapeHTML(publisher)} section" title="Drag to reorder; use Arrow Up or Arrow Down when focused">
+          <i data-lucide="grip-vertical"></i>
+        </button>
         <i data-lucide="chevron-down" class="category-arrow"></i>
-        <span class="category-name">${escapeHTML(category)}</span>
+        <span class="category-name">${escapeHTML(publisher)}</span>
         ${unreadCount > 0 ? `<span class="category-badge">${unreadCount}</span>` : ''}
       `;
       
       // Toggle collapse on arrow / text click
       headerEl.addEventListener('click', (e) => {
+        if (e.target.closest('.category-drag-handle')) return;
         groupEl.classList.toggle('collapsed');
+      });
+
+      const dragHandleEl = headerEl.querySelector('.category-drag-handle');
+      dragHandleEl.addEventListener('click', e => e.stopPropagation());
+      dragHandleEl.addEventListener('keydown', e => {
+        if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+        e.preventDefault();
+        movePublisherGroup(groupEl, e.key === 'ArrowUp' ? 'up' : 'down');
+      });
+      dragHandleEl.addEventListener('dragstart', e => {
+        draggedPublisherGroup = groupEl;
+        groupEl.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', publisher);
+      });
+      dragHandleEl.addEventListener('dragend', () => {
+        if (draggedPublisherGroup) persistPublisherOrder();
+        draggedPublisherGroup = null;
+        DOM.feedsListContainer.querySelectorAll('.category-group').forEach(group => {
+          group.classList.remove('dragging', 'drop-target');
+        });
+      });
+
+      groupEl.addEventListener('dragover', e => {
+        if (!draggedPublisherGroup || draggedPublisherGroup === groupEl) return;
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = 'move';
+
+        const bounds = groupEl.getBoundingClientRect();
+        const insertAfter = e.clientY >= bounds.top + bounds.height / 2;
+        DOM.feedsListContainer.insertBefore(draggedPublisherGroup, insertAfter ? groupEl.nextSibling : groupEl);
+        DOM.feedsListContainer.querySelectorAll('.category-group.drop-target').forEach(group => {
+          group.classList.remove('drop-target');
+        });
+        groupEl.classList.add('drop-target');
+      });
+      groupEl.addEventListener('drop', e => {
+        if (!draggedPublisherGroup || draggedPublisherGroup === groupEl) return;
+        e.preventDefault();
+        persistPublisherOrder();
       });
       
       const feedsContainerEl = document.createElement('div');
