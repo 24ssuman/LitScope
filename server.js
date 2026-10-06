@@ -5,6 +5,11 @@ const path = require('path');
 const crypto = require('crypto');
 const Parser = require('rss-parser');
 const { createCrossrefClient } = require('./crossref-client');
+const {
+  createArticleCheckpoint,
+  getFeedCheckpoint,
+  selectNewArticles
+} = require('./refresh-checkpoint');
 const { resolveArticleReadState } = require('./article-read-state');
 const {
   createDefaultFeeds,
