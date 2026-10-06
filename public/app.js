@@ -343,41 +343,48 @@ function sortFeedsForSidebar(feeds = []) {
   });
 }
 
-function getCurrentJournalCategory() {
-  if (state.activeCategory) return state.activeCategory;
-  if (!state.activeFeedId || QUICK_NAV_IDS.has(state.activeFeedId)) return null;
+function getPublisherFeedGroups(feeds = state.feeds) {
+  const grouped = new Map();
+  feeds.forEach(feed => {
+    const publisher = feed.publisher || 'Other';
+    if (!grouped.has(publisher)) grouped.set(publisher, []);
+    grouped.get(publisher).push(feed);
+  });
 
-  const feedObj = state.feeds.find(f => f.id === state.activeFeedId);
-  return feedObj ? feedObj.category : null;
+  return getOrderedPublishers([...grouped.keys()]).map(publisher => ({
+    publisher,
+    feeds: sortFeedsForSidebar(grouped.get(publisher))
+  }));
 }
 
-function getNextUnreadFeedInCategory(categoryName, excludeFeedId = null) {
-  if (!categoryName) return null;
-
-  const feedsInCategory = state.feeds.filter(feed => feed.category === categoryName);
-  const sortedFeeds = sortFeedsForSidebar(feedsInCategory);
-  return sortedFeeds.find(feed => feed.unreadCount > 0 && feed.id !== excludeFeedId) || null;
-}
-
-function jumpToNextUnreadFeedInCurrentCategory({ excludeCurrentFeed = false, showEmptyToast = true } = {}) {
-  const categoryName = getCurrentJournalCategory();
-  if (!categoryName) return false;
-
-  const excludeFeedId = excludeCurrentFeed && state.activeFeedId && !QUICK_NAV_IDS.has(state.activeFeedId)
-    ? state.activeFeedId
+function getNextUnreadFeedInPublisherOrder({
+  feeds = state.feeds,
+  startFeedId = null,
+  excludeFeedId = null,
+  includeStartFeed = false
+} = {}) {
+  const publisherGroups = getPublisherFeedGroups(feeds);
+  const currentFeed = startFeedId
+    ? publisherGroups.flatMap(group => group.feeds).find(feed => feed.id === startFeedId)
     : null;
-  const nextFeed = getNextUnreadFeedInCategory(categoryName, excludeFeedId);
 
-  if (nextFeed) {
-    selectFeed(nextFeed.id);
-    return true;
+  if (includeStartFeed && currentFeed && currentFeed.unreadCount > 0 && currentFeed.id !== excludeFeedId) {
+    return currentFeed;
   }
 
-  if (showEmptyToast) {
-    showToast(`All journals in ${categoryName} are read.`, 'info');
+  const currentPublisherIndex = publisherGroups.findIndex(group =>
+    group.feeds.some(feed => feed.id === startFeedId)
+  );
+  const orderedGroups = currentPublisherIndex < 1
+    ? publisherGroups
+    : [...publisherGroups.slice(currentPublisherIndex), ...publisherGroups.slice(0, currentPublisherIndex)];
+
+  for (const group of orderedGroups) {
+    const unreadFeed = group.feeds.find(feed => feed.unreadCount > 0 && feed.id !== excludeFeedId);
+    if (unreadFeed) return unreadFeed;
   }
 
-  return false;
+  return null;
 }
 
 // Generate color-coded, styled text icons for default academic publishers to prevent ugly missing-favicon arrows
@@ -504,28 +511,18 @@ async function refreshSidebar() {
     datalist.innerHTML = uniqueCategories.map(cat => `<option value="${cat}">`).join('');
     updateJournalFilterOptions();
 
-    // Group feeds by publisher while retaining each feed's saved category for
-    // the existing filters and read actions.
-    const grouped = {};
-    state.feeds.forEach(feed => {
-      const publisher = feed.publisher || 'Other';
-      if (!grouped[publisher]) grouped[publisher] = [];
-      grouped[publisher].push(feed);
-    });
+    // Keep the rendered sections and next-unread traversal in the same order.
+    const publisherGroups = getPublisherFeedGroups(state.feeds);
 
     // Render tree inside container
     DOM.feedsListContainer.innerHTML = '';
     
-    const sortedPublishers = getOrderedPublishers(Object.keys(grouped));
-    
-    if (sortedPublishers.length === 0) {
+    if (publisherGroups.length === 0) {
       DOM.feedsListContainer.innerHTML = `<div class="sidebar-empty">No feeds added yet. Click + to add your first feed!</div>`;
       return;
     }
 
-    sortedPublishers.forEach(publisher => {
-      // Sort feeds within this category
-      const feeds = sortFeedsForSidebar(grouped[publisher]);
+    publisherGroups.forEach(({ publisher, feeds }) => {
       
       const groupEl = document.createElement('div');
       groupEl.className = 'category-group';
@@ -949,28 +946,27 @@ function renderArticles() {
   lucide.createIcons();
 }
 
-// Navigation helper to find and jump to the first unread feed across any category folder
-function jumpToNextUnreadFeedGlobal(excludeFeedId = null) {
-  const grouped = {};
-  state.feeds.forEach(feed => {
-    const publisher = feed.publisher || 'Other';
-    if (!grouped[publisher]) grouped[publisher] = [];
-    grouped[publisher].push(feed);
+// Navigate to the next unread feed, preferring the current publisher section and
+// then following the saved publisher-section order shown in the sidebar.
+function jumpToNextUnreadFeedGlobal(excludeFeedId = null, { includeCurrentFeed = false, showEmptyToast = false } = {}) {
+  const startFeedId = state.activeFeedId && !QUICK_NAV_IDS.has(state.activeFeedId)
+    ? state.activeFeedId
+    : null;
+  const nextFeed = getNextUnreadFeedInPublisherOrder({
+    startFeedId,
+    excludeFeedId,
+    includeStartFeed: includeCurrentFeed
   });
-  const sortedCategories = Object.keys(grouped).sort((a, b) => a.localeCompare(b));
-  
-  for (const category of sortedCategories) {
-    const feeds = sortFeedsForSidebar(grouped[category]);
-    const found = feeds.find(f => f.unreadCount > 0 && f.id !== excludeFeedId);
-    if (found) {
-      selectFeed(found.id);
-      return true;
-    }
+
+  if (!nextFeed) {
+    if (showEmptyToast) showToast('All journals are read.', 'info');
+    return false;
   }
-  return false;
+  selectFeed(nextFeed.id);
+  return true;
 }
 
-// Mark all articles in current view as read and shift to the next top journal containing unread articles
+// Mark all articles in the current view as read and advance in sidebar section order.
 async function triggerMarkAllRead() {
   const feedParam = (state.activeFeedId && !QUICK_NAV_IDS.has(state.activeFeedId)) ? state.activeFeedId : null;
   const categoryParam = state.activeCategory || null;
@@ -990,7 +986,7 @@ async function triggerMarkAllRead() {
   await refreshSidebar();
   await updateBadgeCounts(await API.getStatus());
 
-  // Jump to the next unread feed globally across all category folders
+  // Continue through the active publisher section, then the saved section order.
   if (!jumpToNextUnreadFeedGlobal(feedParam)) {
     // No unread feeds left anywhere — reload current (will show empty state)
     loadArticles();
@@ -1186,9 +1182,9 @@ function initSSE() {
       
       showToast('All journal feeds refreshed successfully!', 'success');
       
-      // Reload everything, then keep focus within the current category if unread items exist.
+      // Reload feeds, then keep focus in the active publisher section before continuing in sidebar order.
       refreshSidebar().then(() => {
-        if (!jumpToNextUnreadFeedInCurrentCategory({ excludeCurrentFeed: false, showEmptyToast: true })) {
+        if (!jumpToNextUnreadFeedGlobal(null, { includeCurrentFeed: true, showEmptyToast: true })) {
           loadArticles();
         }
       }).catch((err) => {
