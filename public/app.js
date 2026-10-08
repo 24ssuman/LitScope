@@ -434,69 +434,33 @@ function getFeedIcon(feed) {
   return `<span style="${style}">${text}</span>`;
 }
 
-// Generate color-coded, styled badge boxes for journal names to make them distinctly visible
+// Generate color-coded badges for journal names. Each publisher family maps to a hue;
+// the stylesheet derives light/dark colors from --badge-hue so both themes stay readable.
 function getJournalBadge(feedName, feedId = '') {
   const id = (feedId || feedName).toLowerCase();
-  
-  let bg = '';
-  let border = '';
-  let text = '';
-  
-  if (id === 'jacs') {
-    bg = 'rgba(45, 212, 191, 0.15)';
-    border = '1px solid rgba(45, 212, 191, 0.4)';
-    text = '#2dd4bf';
-  } else if (id === 'jctc') {
-    bg = 'rgba(52, 211, 153, 0.15)';
-    border = '1px solid rgba(52, 211, 153, 0.4)';
-    text = '#34d399';
-  } else if (id.startsWith('jpc')) {
-    bg = 'rgba(56, 189, 248, 0.15)';
-    border = '1px solid rgba(56, 189, 248, 0.4)';
-    text = '#38bdf8';
-  } else if (id.startsWith('acs') || id === 'chemmat' || id === 'nanolett') {
-    bg = 'rgba(96, 165, 250, 0.15)';
-    border = '1px solid rgba(96, 165, 250, 0.4)';
-    text = '#60a5fa';
-  } else if (id.startsWith('chemrxiv')) {
-    bg = 'rgba(192, 132, 252, 0.15)';
-    border = '1px solid rgba(192, 132, 252, 0.4)';
-    text = '#c084fc';
-  } else if (id.startsWith('arxiv')) {
-    bg = 'rgba(248, 113, 113, 0.15)';
-    border = '1px solid rgba(248, 113, 113, 0.4)';
-    text = '#f87171';
-  } else if (id === 'jcp' || id === 'jcc' || id.includes('wiley')) {
-    bg = 'rgba(129, 140, 248, 0.15)';
-    border = '1px solid rgba(129, 140, 248, 0.4)';
-    text = '#818cf8';
-  } else if (id === 'pccp') {
-    bg = 'rgba(163, 230, 53, 0.15)';
-    border = '1px solid rgba(163, 230, 53, 0.4)';
-    text = '#a3e635';
-  } else if (id === 'chemsci' || id === 'faradaydiscussion' || id.includes('rsc')) {
-    bg = 'rgba(74, 222, 128, 0.15)';
-    border = '1px solid rgba(74, 222, 128, 0.4)';
-    text = '#4ade80';
-  } else if (id.includes('nature') || id.startsWith('nat')) {
-    bg = 'rgba(251, 191, 36, 0.15)';
-    border = '1px solid rgba(251, 191, 36, 0.4)';
-    text = '#fbbf24';
-  } else {
+
+  let hue;
+  if (id === 'jacs') hue = 172;
+  else if (id === 'jctc') hue = 150;
+  else if (id.startsWith('jpc')) hue = 200;
+  else if (id.startsWith('acs') || id === 'chemmat' || id === 'nanolett') hue = 218;
+  else if (id.startsWith('chemrxiv')) hue = 276;
+  else if (id.startsWith('arxiv')) hue = 6;
+  else if (id === 'jcp' || id === 'jcc' || id.includes('wiley')) hue = 238;
+  else if (id === 'pccp') hue = 84;
+  else if (id === 'chemsci' || id === 'faradaydiscussion' || id.includes('rsc')) hue = 138;
+  else if (id.includes('nature') || id.startsWith('nat')) hue = 38;
+  else {
     // Generate stable hash hue
     let hash = 0;
     const nameToHash = id || feedName;
     for (let i = 0; i < nameToHash.length; i++) {
       hash = nameToHash.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const hue = Math.abs(hash) % 360;
-    bg = `hsla(${hue}, 70%, 50%, 0.15)`;
-    border = `1px solid hsla(${hue}, 70%, 50%, 0.4)`;
-    text = `hsl(${hue}, 80%, 75%)`;
+    hue = Math.abs(hash) % 360;
   }
-  
-  const style = `background-color: ${bg}; border: ${border}; color: ${text}; padding: 2px 6px; border-radius: 4px; font-size: 11px; font-weight: 600; font-family: var(--font-sans); display: inline-flex; align-items: center; white-space: nowrap; max-width: 100%; box-sizing: border-box;`;
-  return `<span class="journal-badge" style="${style}" title="${escapeHTML(feedName)}">${escapeHTML(feedName)}</span>`;
+
+  return `<span class="journal-badge" style="--badge-hue: ${hue}" title="${escapeHTML(feedName)}">${escapeHTML(feedName)}</span>`;
 }
 
 // --- Sidebar Feeds Tree Loading ---

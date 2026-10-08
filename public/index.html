@@ -4,10 +4,10 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LitScope | Academic Journal Aggregator</title>
-  <!-- Google Fonts for premium typography -->
+  <!-- Editorial type system: Fraunces (display), Newsreader (reading), DM Sans (UI), JetBrains Mono (metadata) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Merriweather:ital,wght@0,300;0,400;0,700;1,300&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- Lucide Icons via CDN for modern iconography -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -21,19 +21,14 @@
       <div class="sidebar-header">
         <div class="logo-area">
           <div class="logo-icon"><i data-lucide="compass"></i></div>
-          <span class="logo-text">LitScope</span>
-          <span class="status-indicator online" id="connection-status"></span>
+          <div class="logo-stack">
+            <span class="logo-text">LitScope</span>
+            <span class="logo-tagline">The journal desk<span class="status-indicator online" id="connection-status"></span></span>
+          </div>
         </div>
         <button id="add-feed-btn" class="icon-btn tooltip" data-tooltip="Add Feed">
           <i data-lucide="plus"></i>
         </button>
-      </div>
-
-      <!-- Live Search Box -->
-      <div class="search-box">
-        <i data-lucide="search" class="search-icon"></i>
-        <input type="search" id="search-input" placeholder="Search title, author, journal, or DOI..." aria-label="Search articles">
-        <button id="clear-search-btn" class="clear-btn hidden" aria-label="Clear search"><i data-lucide="x"></i></button>
       </div>
 
       <!-- Quick Nav Links -->
@@ -63,7 +58,7 @@
       <!-- Feeds List (Dynamic Groups) -->
       <div class="feeds-section">
         <div class="feeds-title">
-          <span>FEEDS</span>
+          <span>Feeds</span>
         </div>
         <div class="feeds-list" id="feeds-list-container">
           <!-- Dynamic category collapsible sections go here -->
@@ -90,6 +85,14 @@
           <button id="menu-toggle-btn" class="icon-btn mobile-only"><i data-lucide="menu"></i></button>
           <h1 id="feed-title">Today</h1>
           <span class="article-count-label" id="article-count-label">0 articles</span>
+        </div>
+
+        <!-- Live Search Box -->
+        <div class="search-box">
+          <i data-lucide="search" class="search-icon"></i>
+          <input type="search" id="search-input" placeholder="Search title, author, journal or DOI" aria-label="Search articles">
+          <kbd class="search-hint" aria-hidden="true">/</kbd>
+          <button id="clear-search-btn" class="clear-btn hidden" aria-label="Clear search"><i data-lucide="x"></i></button>
         </div>
 
         <div class="header-actions">
