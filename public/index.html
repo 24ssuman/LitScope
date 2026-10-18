@@ -1,200 +1,220 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-palette="ocean">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>LitScope | Academic Journal Aggregator</title>
-  <!-- Editorial type system: Fraunces (display), Newsreader (reading), DM Sans (UI), JetBrains Mono (metadata) -->
+  <!-- Apply the saved color palette before first paint to avoid a flash of the default palette -->
+  <script>
+    try {
+      var savedPalette = localStorage.getItem('litscope.palette.v1');
+      if (savedPalette) document.documentElement.dataset.palette = savedPalette;
+    } catch (err) { /* storage unavailable: keep the default palette */ }
+  </script>
+  <!-- Console type system: Space Grotesk (display/UI), Source Serif 4 (reading), IBM Plex Mono (metadata) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,600;0,9..144,700;1,9..144,400;1,9..144,600&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;1,8..60,400&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <!-- Lucide Icons via CDN for modern iconography -->
   <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="icon" type="image/svg+xml" href="favicon.svg">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body class="dark-theme">
-  <div id="app" class="app-layout">
-    
-    <!-- Sidebar Panel -->
-    <aside class="sidebar" id="sidebar">
-      <div class="sidebar-header">
-        <div class="logo-area">
-          <div class="logo-icon"><i data-lucide="compass"></i></div>
-          <div class="logo-stack">
-            <span class="logo-text">LitScope</span>
-            <span class="logo-tagline">The journal desk<span class="status-indicator online" id="connection-status"></span></span>
-          </div>
-        </div>
-        <button id="add-feed-btn" class="icon-btn tooltip" data-tooltip="Add Feed">
-          <i data-lucide="plus"></i>
-        </button>
+  <div id="app" class="app-shell">
+
+    <!-- Masthead: brand, view tabs, search and global actions -->
+    <header class="masthead">
+      <button id="menu-toggle-btn" class="icon-btn mobile-only" aria-label="Show journals"><i data-lucide="panel-left"></i></button>
+      <div class="brand">
+        <div class="brand-mark"><i data-lucide="scan-search"></i></div>
+        <span class="brand-name">LitScope</span>
+        <span class="status-indicator online" id="connection-status"></span>
       </div>
 
-      <!-- Quick Nav Links -->
-      <nav class="quick-nav">
+      <!-- Quick Nav Tabs -->
+      <nav class="quick-nav" aria-label="Views">
         <a href="#" class="nav-item active" id="nav-today">
-          <i data-lucide="calendar"></i>
+          <i data-lucide="sun-medium"></i>
           <span>Today</span>
           <span class="badge" id="count-today">0</span>
         </a>
         <a href="#" class="nav-item" id="nav-new">
-          <i data-lucide="bell"></i>
-          <span>New Articles</span>
+          <i data-lucide="sparkles"></i>
+          <span>New</span>
           <span class="badge" id="count-new">0</span>
         </a>
         <a href="#" class="nav-item" id="nav-saved">
-          <i data-lucide="star"></i>
-          <span>Saved for later</span>
+          <i data-lucide="bookmark"></i>
+          <span>Saved</span>
           <span class="badge" id="count-saved">0</span>
         </a>
         <a href="#" class="nav-item" id="nav-all">
-          <i data-lucide="inbox"></i>
-          <span>All articles</span>
+          <i data-lucide="library"></i>
+          <span>All</span>
           <span class="badge" id="count-all">0</span>
         </a>
       </nav>
 
-      <!-- Feeds List (Dynamic Groups) -->
-      <div class="feeds-section">
-        <div class="feeds-title">
-          <span>Feeds</span>
-        </div>
-        <div class="feeds-list" id="feeds-list-container">
-          <!-- Dynamic category collapsible sections go here -->
-          <div class="loading-placeholder">Loading feeds...</div>
-        </div>
+      <!-- Live Search Box -->
+      <div class="search-box">
+        <i data-lucide="search" class="search-icon"></i>
+        <input type="search" id="search-input" placeholder="Search title, author, journal or DOI" aria-label="Search articles">
+        <kbd class="search-hint" aria-hidden="true">/</kbd>
+        <button id="clear-search-btn" class="clear-btn hidden" aria-label="Clear search"><i data-lucide="x"></i></button>
       </div>
 
-      <!-- Sidebar Footer Controls -->
-      <div class="sidebar-footer">
-        <button id="theme-toggle-btn" class="footer-btn tooltip" data-tooltip="Toggle Theme">
+      <div class="masthead-actions">
+        <button id="refresh-btn" class="btn primary tooltip" data-tooltip="Refresh all journals">
+          <i data-lucide="refresh-cw" id="refresh-icon"></i>
+          <span>Refresh</span>
+        </button>
+
+        <!-- Color palette picker -->
+        <div class="palette-picker">
+          <button id="palette-btn" class="icon-btn tooltip" data-tooltip="Color palette" aria-haspopup="true" aria-expanded="false" aria-controls="palette-menu">
+            <i data-lucide="palette"></i>
+          </button>
+          <div class="palette-menu hidden" id="palette-menu" role="menu" aria-label="Color palettes">
+            <div class="palette-menu-title">Color palette</div>
+            <div class="palette-options" id="palette-options">
+              <!-- Palette swatches are generated by app.js -->
+            </div>
+          </div>
+        </div>
+
+        <button id="theme-toggle-btn" class="icon-btn tooltip" data-tooltip="Light / dark">
           <i data-lucide="moon"></i>
         </button>
-        <button id="keyboard-help-btn" class="footer-btn tooltip" data-tooltip="Keyboard Shortcuts (?)">
+        <button id="keyboard-help-btn" class="icon-btn tooltip" data-tooltip="Shortcuts (?)">
           <i data-lucide="keyboard"></i>
         </button>
       </div>
-    </aside>
+    </header>
 
-    <!-- Main Content Panel -->
-    <main class="main-panel">
-      <!-- Top Actions Bar -->
-      <header class="top-bar">
-        <div class="header-info">
-          <button id="menu-toggle-btn" class="icon-btn mobile-only"><i data-lucide="menu"></i></button>
-          <h1 id="feed-title">Today</h1>
-          <span class="article-count-label" id="article-count-label">0 articles</span>
-        </div>
+    <!-- Active Fetching Progress Banner -->
+    <div class="progress-banner hidden" id="progress-banner">
+      <div class="progress-details">
+        <span id="progress-text">Refreshing feeds...</span>
+        <span id="progress-percentage">0%</span>
+      </div>
+      <div class="progress-bar-container">
+        <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
+      </div>
+    </div>
 
-        <!-- Live Search Box -->
-        <div class="search-box">
-          <i data-lucide="search" class="search-icon"></i>
-          <input type="search" id="search-input" placeholder="Search title, author, journal or DOI" aria-label="Search articles">
-          <kbd class="search-hint" aria-hidden="true">/</kbd>
-          <button id="clear-search-btn" class="clear-btn hidden" aria-label="Clear search"><i data-lucide="x"></i></button>
-        </div>
-
-        <div class="header-actions">
-          <!-- Filter: Read vs Unread -->
-          <div class="filter-toggle-group">
-            <button id="filter-unread-btn" class="toggle-btn active">Unread</button>
-            <button id="filter-all-btn" class="toggle-btn">All</button>
+    <div class="workspace">
+      <!-- Journals Panel (left side) -->
+      <aside class="sidebar" id="sidebar">
+        <div class="sidebar-header">
+          <div class="feeds-title">
+            <i data-lucide="layers"></i>
+            <span>Journals</span>
           </div>
-
-          <!-- Layout Buttons -->
-          <div class="layout-toggle-group">
-            <button id="layout-list-btn" class="layout-btn tooltip" data-tooltip="List View"><i data-lucide="align-justify"></i></button>
-            <button id="layout-magazine-btn" class="layout-btn active tooltip" data-tooltip="Magazine View"><i data-lucide="layout-list"></i></button>
-            <button id="layout-cards-btn" class="layout-btn tooltip" data-tooltip="Cards View"><i data-lucide="layout-grid"></i></button>
-          </div>
-
-          <div class="action-divider"></div>
-
-          <!-- General Actions -->
-          <button id="refresh-btn" class="btn primary tooltip" data-tooltip="Refresh Feed">
-            <i data-lucide="refresh-cw" id="refresh-icon"></i>
-            <span>Refresh</span>
+          <button id="add-feed-btn" class="icon-btn tooltip" data-tooltip="Add Feed">
+            <i data-lucide="plus"></i>
           </button>
         </div>
-      </header>
 
-      <!-- Active Fetching Progress Banner -->
-      <div class="progress-banner hidden" id="progress-banner">
-        <div class="progress-bar-container">
-          <div class="progress-bar" id="progress-bar" style="width: 0%"></div>
-        </div>
-        <div class="progress-details">
-          <span id="progress-text">Refreshing feeds...</span>
-          <span id="progress-percentage">0%</span>
-        </div>
-      </div>
-
-      <!-- Article Stream Viewport -->
-      <div class="stream-container" id="stream-container">
-        <!-- Advanced Search Panel -->
-        <div id="advanced-search-panel" class="advanced-search-panel hidden">
-          <div class="filter-panel-heading">
-            <div>
-              <span class="eyebrow">Research library</span>
-              <h2>Refine your results</h2>
-            </div>
-            <p>Combine filters to find the papers that matter now.</p>
+        <!-- Feeds List (Dynamic Groups) -->
+        <div class="feeds-section">
+          <div class="feeds-list" id="feeds-list-container">
+            <!-- Dynamic category collapsible sections go here -->
+            <div class="loading-placeholder">Loading feeds...</div>
           </div>
-          <div class="filter-row">
-            <div class="filter-group">
-              <label for="filter-journal-select">Journal</label>
-              <select id="filter-journal-select">
-                <option value="">All journals</option>
-              </select>
+        </div>
+      </aside>
+
+      <!-- Main Content Panel -->
+      <main class="main-panel">
+        <div class="view-header">
+          <div class="header-info">
+            <span class="view-eyebrow">Now reading</span>
+            <h1 id="feed-title">Today</h1>
+            <span class="article-count-label" id="article-count-label">0 articles</span>
+          </div>
+
+          <div class="header-actions">
+            <!-- Filter: Read vs Unread -->
+            <div class="filter-toggle-group">
+              <button id="filter-unread-btn" class="toggle-btn active">Unread</button>
+              <button id="filter-all-btn" class="toggle-btn">All</button>
             </div>
-            <div class="filter-group">
-              <label for="filter-author-input">Author</label>
-              <input type="text" id="filter-author-input" placeholder="Search author...">
-            </div>
-            <div class="filter-group">
-              <label for="filter-start-date">Start Date</label>
-              <input type="date" id="filter-start-date">
-            </div>
-            <div class="filter-group">
-              <label for="filter-end-date">End Date</label>
-              <input type="date" id="filter-end-date">
-            </div>
-            <div class="filter-group">
-              <label for="filter-sort-select">Sort</label>
-              <select id="filter-sort-select">
-                <option value="newest">Newest first</option>
-                <option value="oldest">Oldest first</option>
-                <option value="journal">Journal A–Z</option>
-              </select>
-            </div>
-            <div class="filter-group button-group">
-              <button id="apply-filters-btn" class="btn primary">
-                <i data-lucide="filter"></i>
-                <span>Apply</span>
-              </button>
-              <button id="reset-filters-btn" class="btn secondary">
-                <i data-lucide="x-circle"></i>
-                <span>Clear</span>
-              </button>
+
+            <!-- Layout Buttons -->
+            <div class="layout-toggle-group">
+              <button id="layout-list-btn" class="layout-btn tooltip" data-tooltip="List View"><i data-lucide="rows-3"></i></button>
+              <button id="layout-magazine-btn" class="layout-btn active tooltip" data-tooltip="Magazine View"><i data-lucide="newspaper"></i></button>
+              <button id="layout-cards-btn" class="layout-btn tooltip" data-tooltip="Cards View"><i data-lucide="layout-grid"></i></button>
             </div>
           </div>
         </div>
 
-        <!-- Rendered articles list -->
-        <div class="stream-content" id="articles-list-container">
-          <!-- Dynamic article cards, rows, or list entries go here -->
-        </div>
-        <div class="stream-empty hidden" id="stream-empty">
-          <i data-lucide="check-circle-2" class="empty-icon"></i>
-          <h2>You're all caught up!</h2>
-          <p>No unread articles in this view. Try fetching fresh articles or changing the filter.</p>
-        </div>
-      </div>
-    </main>
+        <!-- Article Stream Viewport -->
+        <div class="stream-container" id="stream-container">
+          <!-- Advanced Search Panel -->
+          <div id="advanced-search-panel" class="advanced-search-panel hidden">
+            <div class="filter-panel-heading">
+              <i data-lucide="sliders-horizontal"></i>
+              <h2>Refine the library</h2>
+            </div>
+            <div class="filter-row">
+              <div class="filter-group">
+                <label for="filter-journal-select">Journal</label>
+                <select id="filter-journal-select">
+                  <option value="">All journals</option>
+                </select>
+              </div>
+              <div class="filter-group">
+                <label for="filter-author-input">Author</label>
+                <input type="text" id="filter-author-input" placeholder="Search author...">
+              </div>
+              <div class="filter-group">
+                <label for="filter-start-date">Start Date</label>
+                <input type="date" id="filter-start-date">
+              </div>
+              <div class="filter-group">
+                <label for="filter-end-date">End Date</label>
+                <input type="date" id="filter-end-date">
+              </div>
+              <div class="filter-group">
+                <label for="filter-sort-select">Sort</label>
+                <select id="filter-sort-select">
+                  <option value="newest">Newest first</option>
+                  <option value="oldest">Oldest first</option>
+                  <option value="journal">Journal A–Z</option>
+                </select>
+              </div>
+              <div class="filter-group button-group">
+                <button id="apply-filters-btn" class="btn primary">
+                  <i data-lucide="filter"></i>
+                  <span>Apply</span>
+                </button>
+                <button id="reset-filters-btn" class="btn secondary">
+                  <i data-lucide="x-circle"></i>
+                  <span>Clear</span>
+                </button>
+              </div>
+            </div>
+          </div>
 
-    <!-- Slide-out Article Detail Drawer -->
+          <!-- Rendered articles list -->
+          <div class="stream-content" id="articles-list-container">
+            <!-- Dynamic article cards, rows, or list entries go here -->
+          </div>
+          <div class="stream-empty hidden" id="stream-empty">
+            <i data-lucide="party-popper" class="empty-icon"></i>
+            <h2>You're all caught up!</h2>
+            <p>No unread articles in this view. Try fetching fresh articles or changing the filter.</p>
+          </div>
+        </div>
+      </main>
+
+    </div>
+
+    <!-- Article Reader (bottom sheet) -->
     <aside class="detail-drawer" id="detail-drawer">
+      <div class="drawer-grabber" aria-hidden="true"></div>
       <div class="drawer-header">
         <div class="drawer-meta">
           <span class="drawer-feed-name" id="drawer-feed-name">JCTC</span>
@@ -215,14 +235,14 @@
       <div class="drawer-body">
         <h1 class="drawer-title" id="drawer-title">Machine Learning Potentials for Accurate Prediction of Transition State Structures</h1>
         <div class="drawer-authors" id="drawer-authors">A. Kovalenko, E. Rostova, and I. Petrov</div>
-        
+
         <div class="drawer-doi-container hidden" id="drawer-doi-container">
-          <span class="doi-label">DOI / ID:</span>
+          <span class="doi-label">DOI / ID</span>
           <a href="#" target="_blank" rel="noopener noreferrer" id="drawer-doi-link" class="doi-link">10.1002/jcc.70460</a>
         </div>
-        
+
         <div class="drawer-divider"></div>
-        <div class="drawer-content-header">ABSTRACT</div>
+        <div class="drawer-content-header">Abstract</div>
         <div class="drawer-content" id="drawer-content">
           We introduce a machine learning potential trained on coupled-cluster calculations to predict transition state geometries and activation barriers. The model reduces computational cost by five orders of magnitude while preserving chemical accuracy within 1 kcal/mol.
         </div>
@@ -327,7 +347,7 @@
           <kbd>s</kbd> <span>Toggle Star (Save for later)</span>
         </div>
         <div class="shortcut-row">
-          <kbd>o</kbd> <span>Open selected article in side panel</span>
+          <kbd>o</kbd> <span>Open selected article in the reader</span>
         </div>
         <div class="shortcut-row">
           <kbd>v</kbd> <span>Visit publisher website in a new tab</span>

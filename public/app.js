@@ -478,7 +478,8 @@ async function refreshSidebar() {
     // Keep the rendered sections and next-unread traversal in the same order.
     const publisherGroups = getPublisherFeedGroups(state.feeds);
 
-    // Render tree inside container
+    // Render tree inside container, keeping the panel's scroll position across re-renders
+    const previousScrollTop = DOM.feedsListContainer.scrollTop;
     DOM.feedsListContainer.innerHTML = '';
     
     if (publisherGroups.length === 0) {
@@ -596,7 +597,8 @@ async function refreshSidebar() {
 
     // Re-initialize lucide icons for newly appended DOM elements
     lucide.createIcons();
-    
+    DOM.feedsListContainer.scrollTop = previousScrollTop;
+
   } catch (err) {
     console.error('Failed to load sidebar feeds:', err);
     DOM.feedsListContainer.innerHTML = `<div class="sidebar-error">Error loading feeds.</div>`;
@@ -978,12 +980,34 @@ function selectFeed(feedId) {
     }
   }
 
+  revealActiveFeed();
+
   // Update header title
   const feedObj = state.feeds.find(f => f.id === feedId);
   DOM.feedTitle.innerText = feedObj ? feedObj.name : 'Unknown Feed';
   
   closeDrawer();
   loadArticles();
+}
+
+// Scroll the Journals panel so the journal being read is visible, showing its
+// publisher header too when both fit. Does nothing if it is already in view.
+function revealActiveFeed({ smooth = true } = {}) {
+  const list = DOM.feedsListContainer;
+  const item = list.querySelector('.feed-item.active');
+  if (!item) return;
+
+  const listRect = list.getBoundingClientRect();
+  const itemRect = item.getBoundingClientRect();
+  if (itemRect.top >= listRect.top && itemRect.bottom <= listRect.bottom) return;
+
+  const group = item.closest('.category-group');
+  const groupTop = group ? group.getBoundingClientRect().top : itemRect.top;
+  let target = list.scrollTop + (groupTop - listRect.top) - 8;
+  if (itemRect.bottom - groupTop + 16 > list.clientHeight) {
+    target = list.scrollTop + (itemRect.top - listRect.top) - list.clientHeight / 3;
+  }
+  list.scrollTo({ top: Math.max(0, target), behavior: smooth ? 'smooth' : 'auto' });
 }
 
 function selectCategory(categoryName) {
@@ -1216,6 +1240,19 @@ function bindEvents() {
     lucide.createIcons();
   });
   
+  // Color palette picker
+  initPalettePicker();
+
+  // On narrow screens the Journals panel overlays the stream: close it once a journal is chosen
+  DOM.feedsListContainer.addEventListener('click', (e) => {
+    if (window.matchMedia('(max-width: 860px)').matches && e.target.closest('.feed-item') && !e.target.closest('.feed-actions-trigger')) {
+      DOM.sidebar.classList.remove('open');
+    }
+  });
+  document.querySelector('.main-panel').addEventListener('click', () => {
+    if (window.matchMedia('(max-width: 860px)').matches) DOM.sidebar.classList.remove('open');
+  });
+
   // Help shortcuts guide
   DOM.keyboardHelpBtn.addEventListener('click', () => {
     DOM.keyboardModal.classList.remove('hidden');
@@ -1431,6 +1468,74 @@ function bindEvents() {
         overlay.classList.add('hidden');
       }
     });
+  });
+}
+
+// --- Color palettes ---
+// Colors are defined in styles.css per palette (dark + light); this list only names them.
+// The choice is a per-browser visual preference, so it is kept in localStorage, not db.json.
+const PALETTE_STORAGE_KEY = 'litscope.palette.v1';
+const PALETTES = [
+  { id: 'ocean', name: 'Ocean' },
+  { id: 'forest', name: 'Forest' },
+  { id: 'ember', name: 'Ember' },
+  { id: 'orchid', name: 'Orchid' },
+  { id: 'rose', name: 'Rosé' },
+  { id: 'solar', name: 'Solarized' },
+  { id: 'graphite', name: 'Graphite' }
+];
+
+function getActivePalette() {
+  const current = document.documentElement.dataset.palette;
+  return PALETTES.some(p => p.id === current) ? current : PALETTES[0].id;
+}
+
+function renderPaletteOptions() {
+  const container = document.getElementById('palette-options');
+  const active = getActivePalette();
+  container.innerHTML = PALETTES.map(p => `
+    <button type="button" class="palette-option ${p.id === active ? 'active' : ''}" data-palette-id="${p.id}" role="menuitemradio" aria-checked="${p.id === active}">
+      <span class="palette-swatch" data-palette="${p.id}"><span></span><span></span><span></span></span>
+      <span class="palette-option-name">${escapeHTML(p.name)}${p.id === active ? '<i data-lucide="check"></i>' : ''}</span>
+    </button>
+  `).join('');
+  lucide.createIcons();
+}
+
+function applyPalette(paletteId) {
+  if (!PALETTES.some(p => p.id === paletteId)) return;
+  document.documentElement.dataset.palette = paletteId;
+  try {
+    localStorage.setItem(PALETTE_STORAGE_KEY, paletteId);
+  } catch (err) {
+    console.warn('Could not save the color palette locally:', err);
+  }
+  renderPaletteOptions();
+}
+
+function initPalettePicker() {
+  const paletteBtn = document.getElementById('palette-btn');
+  const paletteMenu = document.getElementById('palette-menu');
+  document.documentElement.dataset.palette = getActivePalette();
+
+  const setOpen = (open) => {
+    paletteMenu.classList.toggle('hidden', !open);
+    paletteBtn.setAttribute('aria-expanded', String(open));
+    if (open) renderPaletteOptions();
+  };
+
+  paletteBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    setOpen(paletteMenu.classList.contains('hidden'));
+  });
+  paletteMenu.addEventListener('click', (e) => {
+    e.stopPropagation();
+    const option = e.target.closest('.palette-option');
+    if (option) applyPalette(option.dataset.paletteId);
+  });
+  document.addEventListener('click', () => setOpen(false));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') setOpen(false);
   });
 }
 

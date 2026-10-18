@@ -22,13 +22,17 @@ The default server URL is `http://localhost:3000`.
 
 Crossref requests are serialized and automatically retried after temporary rate limits. Optional environment variables are `CROSSREF_MAILTO` for a contact address, `CROSSREF_MIN_INTERVAL_MS` for request spacing (default `350`), and `CROSSREF_MAX_RETRIES` for retry count (default `2`). The server also rejects a second refresh while one is already running.
 
-The sidebar groups journals by publisher (for example ACS, RSC, APS, and Wiley), while each feed retains its saved category for filtering and read actions. The toolbar **Refresh** button always refreshes every configured journal, regardless of the active sidebar tab. Each journal keeps a `lastFetchedArticle` checkpoint; after the source is read, only entries before that newest-first checkpoint are merged. If a source has rotated past the checkpoint, LitScope recovers only article identities that are not already saved for that journal.
+The Journals panel (left side) groups journals by publisher (for example ACS, RSC, APS, and Wiley), while each feed retains its saved category for filtering and read actions. The toolbar **Refresh** button always refreshes every configured journal, regardless of the active sidebar tab. Each journal keeps a `lastFetchedArticle` checkpoint; after the source is read, only entries before that newest-first checkpoint are merged. If a source has rotated past the checkpoint, LitScope recovers only article identities that are not already saved for that journal.
 
 ## Research workflow
 
-- Use **All articles** to filter by journal, author, and date, then order results by date or journal.
+- Use the **All** tab to filter by journal, author, and date, then order results by date or journal.
 - Search accepts article titles, authors, journal names, abstracts, and DOI fragments.
 - Open any article to copy a simple share-ready citation, or press `c` when it is selected.
+
+## Layout and color palettes
+
+The masthead holds the view tabs (Today, New, Saved, All), search, Refresh, the palette picker, the light/dark toggle, and the shortcuts help. The Journals panel sits on the left (it scrolls on its own, automatically scrolls to the journal you are reading, and slides in from the left on small screens), articles fill the rest, and opening an article raises a reader sheet from the bottom. Pick a color palette (Ocean, Forest, Ember, Orchid, Rosé, Solarized, Graphite) from the palette button; each has light and dark variants. The palette choice is remembered in the browser (`localStorage`), not in `db.json`.
 
 ## Add another journal
 
