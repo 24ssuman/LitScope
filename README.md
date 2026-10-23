@@ -1,6 +1,6 @@
 # LitScope
 
-Local Express app for tracking recent chemistry and computational chemistry articles from RSS feeds, arXiv category queries, and ChemRxiv-style preprint sources. It supports saved reading queues, live refresh progress, journal management, library filtering, DOI search, and one-click citation copying.
+Local Express app for tracking recent articles from journals and preprint sources across research fields, using RSS and supported source-specific APIs. It supports saved reading queues, live refresh progress, journal management, library filtering, DOI search, and one-click citation copying.
 
 ## Structure
 
