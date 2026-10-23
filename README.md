@@ -26,6 +26,8 @@ The Journals panel (left side) groups journals by publisher (for example ACS, RS
 
 The default catalog includes all of LitScope's built-in **Comp Chem** journals and preprint feeds: JCC, JCP, JCTC, JPC A, JPC B, JPC C, JPC Letts, PCCP, arXiv:stat-mech, arXiv:chem-ph, ChemRxiv: Theo/Comp, and ChemRxiv: Phys Chem.
 
+ChemRxiv works differently from the RSS-backed journals and arXiv feeds. Its two category feeds use ChemRxiv's public API to fetch up to 20 papers from the past week. If that API is unavailable, LitScope falls back to Crossref metadata for recent ChemRxiv DOI records and uses title, abstract, and subject keywords to place papers in the matching feed. The fallback can be less complete or precise than ChemRxiv's category results. ChemRxiv papers keep their ChemRxiv article links when saved.
+
 ## Research workflow
 
 - Use the **All** tab to filter by journal, author, and date, then order results by date or journal.
