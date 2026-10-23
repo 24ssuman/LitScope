@@ -955,6 +955,25 @@ input[type="date"] { font-family: var(--font-mono); font-size: 12.5px; }
 .category-drag-handle:hover { color: var(--accent); }
 .category-drag-handle:active { cursor: grabbing; }
 
+.category-remove-trigger {
+  display: grid;
+  width: 24px;
+  height: 24px;
+  place-items: center;
+  border-radius: 6px;
+  color: var(--ink-3);
+  opacity: 0;
+  pointer-events: none;
+}
+.category-header:hover .category-remove-trigger,
+.category-remove-trigger:focus-visible {
+  opacity: 0.75;
+  pointer-events: auto;
+}
+.category-remove-trigger i,
+.category-remove-trigger svg { width: 14px; height: 14px; }
+.category-remove-trigger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); opacity: 1; }
+
 .category-arrow { width: 14px !important; height: 14px !important; order: 3; transition: transform 0.2s var(--ease); }
 .category-group.collapsed .category-arrow { transform: rotate(-90deg); }
 
@@ -1292,4 +1311,5 @@ kbd {
   .feed-item .feed-actions-trigger { display: grid; }
   .feed-item:hover .badge { display: inline-block; }
   .category-drag-handle { opacity: 1; }
+  .category-remove-trigger { opacity: 0.75; pointer-events: auto; }
 }

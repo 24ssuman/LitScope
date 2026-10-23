@@ -24,6 +24,8 @@ Crossref requests are serialized and automatically retried after temporary rate 
 
 The Journals panel (left side) groups journals by publisher (for example ACS, RSC, APS, and Wiley), while each feed retains its saved category for filtering and read actions. The toolbar **Refresh** button always refreshes every configured journal, regardless of the active sidebar tab. Each journal keeps a `lastFetchedArticle` checkpoint; after the source is read, only entries before that newest-first checkpoint are merged. If a source has rotated past the checkpoint, LitScope recovers only article identities that are not already saved for that journal.
 
+The default catalog includes all of LitScope's built-in **Comp Chem** journals and preprint feeds: JCC, JCP, JCTC, JPC A, JPC B, JPC C, JPC Letts, PCCP, arXiv:stat-mech, arXiv:chem-ph, ChemRxiv: Theo/Comp, and ChemRxiv: Phys Chem.
+
 ## Research workflow
 
 - Use the **All** tab to filter by journal, author, and date, then order results by date or journal.
@@ -37,6 +39,8 @@ The masthead holds the view tabs (Today, New, Saved, All), search, Refresh, the 
 ## Add another journal
 
 Any journal with an HTTP(S) RSS feed or arXiv API query can be added from the app with the `+` button. Enter its display name, source URL, and category; LitScope validates the URL, saves the feed, downloads its articles, and keeps it available across restarts in the local database.
+
+To remove one journal, open its edit control in the Journals panel and choose **Delete Feed**. A trash button appears for publisher sections that contain only user-added journals; confirming removes those journals and their downloaded articles together. In sections that also contain built-in journals, remove an added journal individually. Read-history records are retained.
 
 To ship another journal as part of the default catalog, add one entry to [`journal-config.js`](./journal-config.js):
 

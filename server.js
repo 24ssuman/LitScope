@@ -47,6 +47,7 @@ const parser = new Parser({
 // in journal-config.js so adding an RSS-backed journal does not require edits in
 // multiple ingestion/fallback maps.
 const DEFAULT_FEEDS = createDefaultFeeds();
+const DEFAULT_FEED_IDS = new Set(DEFAULT_FEEDS.map(feed => feed.id));
 const JOURNAL_PUBLISHERS = getJournalPublishers();
 const NEW_JOURNAL_IDS = new Set([
   'chemical-reviews',
@@ -1150,6 +1151,7 @@ app.get('/api/feeds', (req, res) => {
     return {
       ...feed,
       publisher: JOURNAL_PUBLISHERS[feed.id] || inferPublisher(feed.url),
+      isCustom: !DEFAULT_FEED_IDS.has(feed.id),
       unreadCount,
       newestDate
     };
@@ -1248,6 +1250,32 @@ app.delete('/api/feeds/:id', (req, res) => {
   
   saveDB();
   res.json({ message: `Feed ${id} and all its articles deleted.` });
+});
+
+// Remove a complete publisher section from the sidebar, including its feeds
+// and downloaded articles. Read history is intentionally left intact.
+app.delete('/api/sections/:publisher', (req, res) => {
+  const publisher = String(req.params.publisher || '').trim();
+  const sectionFeeds = db.feeds.filter(
+    feed => (JOURNAL_PUBLISHERS[feed.id] || inferPublisher(feed.url)) === publisher
+  );
+
+  if (sectionFeeds.length === 0) {
+    return res.status(404).json({ error: 'Section not found' });
+  }
+  if (sectionFeeds.some(feed => !feed.id || DEFAULT_FEED_IDS.has(feed.id))) {
+    return res.status(409).json({ error: 'Remove added journals individually when a section also contains built-in journals' });
+  }
+
+  const removedFeedIds = sectionFeeds.map(feed => feed.id);
+  const removedIds = new Set(removedFeedIds);
+  const articleCountBefore = db.articles.length;
+  db.feeds = db.feeds.filter(feed => !removedIds.has(feed.id));
+  db.articles = db.articles.filter(article => !removedIds.has(article.feedId));
+  const removedArticleCount = articleCountBefore - db.articles.length;
+
+  saveDB();
+  res.json({ publisher, removedFeedIds, removedArticleCount });
 });
 
 // 5. GET articles (with extensive filters)

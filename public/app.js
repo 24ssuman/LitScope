@@ -56,6 +56,12 @@ const API = {
     const res = await fetch(`/api/feeds/${id}`, { method: 'DELETE' });
     return res.json();
   },
+  async deleteSection(publisher) {
+    const res = await fetch('/api/sections/' + encodeURIComponent(publisher), { method: 'DELETE' });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Failed to remove section');
+    return result;
+  },
   async markRead(id, read) {
     const res = await fetch(`/api/articles/${id}/read`, {
       method: 'POST',
@@ -505,12 +511,53 @@ async function refreshSidebar() {
         <span class="category-name">${escapeHTML(publisher)}</span>
         ${unreadCount > 0 ? `<span class="category-badge">${unreadCount}</span>` : ''}
       `;
+      if (feeds.every(feed => feed.isCustom)) {
+        headerEl.insertAdjacentHTML(
+          'beforeend',
+          '<button type="button" class="category-remove-trigger" aria-label="Remove ' +
+            escapeHTML(publisher) +
+            ' section" title="Remove section and its added journals"><i data-lucide="trash-2"></i></button>'
+        );
+      }
       
       // Toggle collapse on arrow / text click
       headerEl.addEventListener('click', (e) => {
-        if (e.target.closest('.category-drag-handle')) return;
+        if (e.target.closest('.category-drag-handle, .category-remove-trigger')) return;
         groupEl.classList.toggle('collapsed');
       });
+
+      const removeSectionBtn = headerEl.querySelector('.category-remove-trigger');
+      if (removeSectionBtn) {
+        removeSectionBtn.addEventListener('click', async e => {
+          e.preventDefault();
+          e.stopPropagation();
+          const journalNames = feeds.map(feed => feed.name).join(', ');
+          const prompt = 'Remove the ' + publisher + ' section and its ' + feeds.length +
+            ' added journal(s) (' + journalNames + ')? Downloaded articles from these journals will also be removed.';
+          if (!confirm(prompt)) return;
+
+          try {
+            const result = await API.deleteSection(publisher);
+            const removedIds = new Set(result.removedFeedIds);
+            const selectedArticle = state.articles.find(article => article.id === state.selectedArticleId);
+            const selectedArticleRemoved = selectedArticle && removedIds.has(selectedArticle.feedId);
+            if (selectedArticleRemoved) closeDrawer();
+
+            showToast('Removed the ' + publisher + ' section and ' + result.removedFeedIds.length +
+              ' journal(s).', 'success');
+            await refreshSidebar();
+
+            if (removedIds.has(state.activeFeedId)) {
+              selectQuickNav('today');
+            } else {
+              await loadArticles();
+              await updateBadgeCounts(await API.getStatus());
+            }
+          } catch (err) {
+            showToast(err.message, 'error');
+          }
+        });
+      }
 
       const dragHandleEl = headerEl.querySelector('.category-drag-handle');
       dragHandleEl.addEventListener('click', e => e.stopPropagation());
@@ -569,7 +616,7 @@ async function refreshSidebar() {
           </div>
           <span class="feed-name">${escapeHTML(feed.name)}</span>
           ${feed.unreadCount > 0 ? `<span class="badge">${feed.unreadCount}</span>` : ''}
-          <button class="feed-actions-trigger" data-feed-id="${feed.id}">
+          <button type="button" class="feed-actions-trigger" data-feed-id="${feed.id}" aria-label="Edit or remove ${escapeHTML(feed.name)}" title="Edit or remove journal">
             <i data-lucide="edit-3" style="width:13px; height:13px;"></i>
           </button>
         `;
